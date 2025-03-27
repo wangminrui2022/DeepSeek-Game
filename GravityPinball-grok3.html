@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gravity Pinball</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle, #0a0e24, #000);
+        }
+        canvas {
+            display: block;
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            color: #00f7ff;
+            font-family: Arial, sans-serif;
+            font-size: 24px;
+        }
+        #energy {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 10px;
+            background: #333;
+            border: 1px solid #00f7ff;
+        }
+        #energy-bar {
+            height: 100%;
+            background: #00f7ff;
+            transition: width 0.2s;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="game"></canvas>
+    <div id="score">Score: 0</div>
+    <div id="energy"><div id="energy-bar" style="width: 100%"></div></div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const scoreDisplay = document.getElementById('score');
+        const energyBar = document.getElementById('energy-bar');
+
+        // Game Setup
+        canvas.width = 800;
+        canvas.height = 600;
+
+        // Game State
+        let game = {
+            score: 0,
+            lives: 3,
+            combo: 0,
+            energy: 100,
+            ballActive: false
+        };
+
+        // Ball Properties
+        let ball = {
+            x: 400,
+            y: 500,
+            radius: 10,
+            vx: 0,
+            vy: 0,
+            ay: 0.2
+        };
+
+        // Paddle Properties
+        let paddle = {
+            x: 350,
+            y: 550,
+            width: 100,
+            height: 20,
+            vx: 0,
+            speed: 8,
+            targetX: 350
+        };
+
+        // Obstacles
+        const obstacles = [
+            {x: 200, y: 100, type: 'star', size: 30, points: 5},
+            {x: 400, y: 200, type: 'hex', size: 30, points: 10},
+            {x: 600, y: 150, type: 'star', size: 30, points: 5}
+        ];
+
+        // Input Handling
+        let keys = {left: false, right: false};
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = true;
+            if (e.key === 'ArrowRight') keys.right = true;
+            if (e.key === ' ' && !game.ballActive) launchBall();
+            if (e.key === 'r') resetGame();
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') keys.left = false;
+            if (e.key === 'ArrowRight') keys.right = false;
+        });
+
+        // Physics Engine
+        function updatePhysics() {
+            // Paddle movement with inertia
+            if (keys.left && paddle.x > 0) paddle.targetX -= paddle.speed;
+            if (keys.right && paddle.x + paddle.width < canvas.width) paddle.targetX += paddle.speed;
+            paddle.x += (paddle.targetX - paddle.x) * 0.2;
+
+            if (!game.ballActive) return;
+
+            // Ball physics
+            ball.vy += ball.ay;
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+
+            // Wall collisions
+            if (ball.x - ball.radius < 0) { ball.x = ball.radius; ball.vx = -ball.vx * 0.9; }
+            if (ball.x + ball.radius > canvas.width) { ball.x = canvas.width - ball.radius; ball.vx = -ball.vx * 0.9; }
+            if (ball.y - ball.radius < 0) { ball.y = ball.radius; ball.vy = -ball.vy * 0.9; }
+
+            // Paddle collision
+            if (ball.y + ball.radius > paddle.y && 
+                ball.y - ball.radius < paddle.y + paddle.height &&
+                ball.x > paddle.x && 
+                ball.x < paddle.x + paddle.width) {
+                ball.vy = -Math.abs(ball.vy) * 0.9;
+                let hitPos = (ball.x - paddle.x) / paddle.width - 0.5;
+                ball.vx += hitPos * 5;
+                game.energy = Math.min(100, game.energy + 10);
+            }
+
+            // Obstacle collisions
+            obstacles.forEach(obstacle => {
+                let dx = ball.x - obstacle.x;
+                let dy = ball.y - obstacle.y;
+                let distance = Math.sqrt(dx * dx + dy * dy);
+                if (distance < ball.radius + obstacle.size) {
+                    game.score += obstacle.points * (game.combo > 2 ? 2 : 1);
+                    game.combo++;
+                    ball.vy = -ball.vy * 0.9;
+                    ball.vx += (dx / distance) * 2;
+                }
+            });
+
+            // Ball lost
+            if (ball.y > canvas.height) {
+                game.ballActive = false;
+                game.lives--;
+                game.combo = 0;
+                resetBall();
+            }
+        }
+
+        // Render Loop
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#00f7ff';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00f7ff';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+
+            // Draw paddle
+            ctx.fillStyle = game.combo > 2 ? '#00ff00' : '#00f7ff';
+            ctx.fillRect(paddle.x, paddle.y, paddle.width, paddle.height);
+
+            // Draw obstacles
+            obstacles.forEach(obstacle => {
+                ctx.beginPath();
+                if (obstacle.type === 'star') {
+                    drawStar(obstacle.x, obstacle.y, obstacle.size);
+                } else {
+                    drawHex(obstacle.x, obstacle.y, obstacle.size);
+                }
+                ctx.fillStyle = '#ff00ff';
+                ctx.fill();
+            });
+
+            // Update UI
+            scoreDisplay.textContent = `Score: ${game.score} | Lives: ${game.lives}`;
+            energyBar.style.width = `${game.energy}%`;
+            game.energy = Math.max(0, game.energy - 0.1);
+        }
+
+        // Helper Functions
+        function drawStar(x, y, size) {
+            const spikes = 5;
+            const step = Math.PI / spikes;
+            ctx.beginPath();
+            for (let i = 0; i < spikes * 2; i++) {
+                const radius = i % 2 === 0 ? size : size / 2;
+                ctx.lineTo(
+                    x + Math.cos(i * step) * radius,
+                    y + Math.sin(i * step) * radius
+                );
+            }
+            ctx.closePath();
+        }
+
+        function drawHex(x, y, size) {
+            ctx.beginPath();
+            for (let i = 0; i < 6; i++) {
+                ctx.lineTo(
+                    x + Math.cos(Math.PI / 3 * i) * size,
+                    y + Math.sin(Math.PI / 3 * i) * size
+                );
+            }
+            ctx.closePath();
+        }
+
+        function launchBall() {
+            ball.x = paddle.x + paddle.width / 2;
+            ball.y = paddle.y - ball.radius;
+            ball.vx = 0;
+            ball.vy = -5;
+            game.ballActive = true;
+        }
+
+        function resetBall() {
+            ball.x = paddle.x + paddle.width / 2;
+            ball.y = paddle.y - ball.radius;
+            ball.vx = 0;
+            ball.vy = 0;
+        }
+
+        function resetGame() {
+            game = {score: 0, lives: 3, combo: 0, energy: 100, ballActive: false};
+            paddle.x = 350;
+            paddle.targetX = 350;
+            resetBall();
+        }
+
+        // Main Game Loop
+        function gameLoop() {
+            updatePhysics();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        gameLoop();
+    </script>
+</body>
+</html>

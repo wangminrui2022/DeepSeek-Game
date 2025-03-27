@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>磁铁迷宫 - Magnetic Maze</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+
+        #game-container {
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        #game-canvas {
+            background-color: #2c3e50;
+            display: block;
+        }
+
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #controls {
+            margin-top: 10px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        #switch-polarity {
+            min-width: 50px;
+        }
+
+        #switch-polarity.N {
+            background-color: #e74c3c; /* 红色代表N极 */
+        }
+
+        #switch-polarity.S {
+            background-color: #3498db; /* 蓝色代表S极 */
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="ui">
+            <div id="level-info">关卡: <span id="current-level">1</span>/5</div>
+            <div id="controls">
+                <button id="reset-btn">重置 (R)</button>
+                <div id="polarity-control">
+                    <span>磁极: </span>
+                    <button id="switch-polarity">N极</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
+    <script>
+        // 游戏配置
+        const config = {
+            width: 800,
+            height: 600,
+            playerMagnetSize: 40,
+            ballSize: 20,
+            magneticForce: 0.00005, // 减小磁力系数
+            friction: 0.01,
+            frictionAir: 0.05,
+            minDistance: 10 // 最小作用距离
+        };
+
+        // 游戏状态
+        let gameState = {
+            currentLevel: 0,
+            levels: [],
+            engine: null,
+            render: null,
+            playerMagnet: null,
+            ball: null,
+            walls: [],
+            fixedMagnets: [],
+            movableMetals: [],
+            isDragging: false,
+            playerPolarity: 'N' // 'N' 或 'S'
+        };
+
+        // 初始化游戏
+        function initGame() {
+            // 创建物理引擎
+            gameState.engine = Matter.Engine.create({
+                gravity: { x: 0, y: 0 },
+                enableSleeping: true // 启用休眠以优化性能
+            });
+            
+            // 创建渲染器
+            const canvas = document.getElementById('game-canvas');
+            canvas.width = config.width;
+            canvas.height = config.height;
+            
+            gameState.render = Matter.Render.create({
+                canvas: canvas,
+                engine: gameState.engine,
+                options: {
+                    width: config.width,
+                    height: config.height,
+                    wireframes: false,
+                    background: '#2c3e50'
+                }
+            });
+            
+            // 加载关卡
+            loadLevels();
+            
+            // 设置事件监听器
+            setupEventListeners();
+            
+            // 开始游戏
+            startLevel(0);
+            
+            // 运行引擎
+            Matter.Render.run(gameState.render);
+            const runner = Matter.Runner.create();
+            Matter.Runner.run(runner, gameState.engine);
+        }
+
+        // 加载关卡数据
+        function loadLevels() {
+            gameState.levels = [
+                // 关卡1 - 简单迷宫
+                {
+                    walls: [
+                        { x: 100, y: 100, width: 600, height: 20 },
+                        { x: 100, y: 480, width: 600, height: 20 },
+                        { x: 100, y: 100, width: 20, height: 380 },
+                        { x: 680, y: 100, width: 20, height: 380 },
+                        { x: 300, y: 200, width: 20, height: 200 }
+                    ],
+                    fixedMagnets: [
+                        { x: 400, y: 300, polarity: 'N' }
+                    ],
+                    movableMetals: [],
+                    ball: { x: 150, y: 150 },
+                    playerStart: { x: 150, y: 400 },
+                    goal: { x: 650, y: 150, radius: 30 }
+                },
+                // 关卡2 - 增加可移动金属块
+                {
+                    walls: [
+                        { x: 100, y: 100, width: 600, height: 20 },
+                        { x: 100, y: 480, width: 600, height: 20 },
+                        { x: 100, y: 100, width: 20, height: 380 },
+                        { x: 680, y: 100, width: 20, height: 380 },
+                        { x: 200, y: 200, width: 20, height: 200 },
+                        { x: 400, y: 200, width: 20, height: 200 }
+                    ],
+                    fixedMagnets: [
+                        { x: 300, y: 300, polarity: 'N' },
+                        { x: 500, y: 300, polarity: 'S' }
+                    ],
+                    movableMetals: [
+                        { x: 300, y: 150 }
+                    ],
+                    ball: { x: 150, y: 150 },
+                    playerStart: { x: 150, y: 400 },
+                    goal: { x: 650, y: 150, radius: 30 }
+                }
+            ];
+        }
+
+        // 开始指定关卡
+        function startLevel(levelIndex) {
+            // 清除上一关
+            clearLevel();
+            
+            // 设置当前关卡
+            gameState.currentLevel = levelIndex;
+            document.getElementById('current-level').textContent = levelIndex + 1;
+            
+            const level = gameState.levels[levelIndex];
+            
+            // 创建墙壁
+            createWalls(level.walls);
+            
+            // 创建固定磁铁
+            createFixedMagnets(level.fixedMagnets);
+            
+            // 创建可移动金属块
+            createMovableMetals(level.movableMetals);
+            
+            // 创建小球
+            createBall(level.ball);
+            
+            // 创建玩家磁铁
+            createPlayerMagnet(level.playerStart);
+            
+            // 设置目标区域和自定义渲染
+            setupGoalAndRender(level.goal);
+            
+            // 添加碰撞检测
+            setupCollisionDetection(level.goal);
+            
+            // 添加磁力效果
+            setupMagneticForces();
+        }
+
+        function clearLevel() {
+            // 清除上一关的所有物体
+            const bodies = [
+                gameState.playerMagnet,
+                gameState.ball,
+                ...gameState.walls,
+                ...gameState.fixedMagnets.map(m => m.body),
+                ...gameState.movableMetals
+            ].filter(Boolean);
+            
+            Matter.Composite.remove(gameState.engine.world, bodies);
+            
+            // 重置游戏状态
+            gameState.walls = [];
+            gameState.fixedMagnets = [];
+            gameState.movableMetals = [];
+            gameState.playerMagnet = null;
+            gameState.ball = null;
+        }
+
+        function createWalls(wallData) {
+            wallData.forEach(wall => {
+                const wallBody = Matter.Bodies.rectangle(
+                    wall.x, wall.y, wall.width, wall.height, 
+                    { 
+                        isStatic: true, 
+                        render: { fillStyle: '#34495e' },
+                        collisionFilter: { group: -1 } // 防止墙壁之间产生碰撞
+                    }
+                );
+                gameState.walls.push(wallBody);
+                Matter.Composite.add(gameState.engine.world, wallBody);
+            });
+        }
+
+        function createFixedMagnets(magnetsData) {
+            magnetsData.forEach(magnet => {
+                const magnetBody = Matter.Bodies.circle(
+                    magnet.x, magnet.y, 25, 
+                    { 
+                        isStatic: true,
+                        render: { 
+                            fillStyle: magnet.polarity === 'N' ? '#e74c3c' : '#3498db',
+                            text: {
+                                content: magnet.polarity,
+                                color: 'white',
+                                size: 20
+                            }
+                        },
+                        polarity: magnet.polarity,
+                        mass: 10 // 增加质量以增强磁力效果
+                    }
+                );
+                gameState.fixedMagnets.push({ body: magnetBody, polarity: magnet.polarity });
+                Matter.Composite.add(gameState.engine.world, magnetBody);
+            });
+        }
+
+        function createMovableMetals(metalsData) {
+            metalsData.forEach(metal => {
+                const metalBody = Matter.Bodies.rectangle(
+                    metal.x, metal.y, 30, 30,
+                    {
+                        render: { fillStyle: '#bdc3c7' },
+                        friction: config.friction,
+                        frictionAir: config.frictionAir,
+                        label: 'metal',
+                        mass: 5 // 适当的质量
+                    }
+                );
+                gameState.movableMetals.push(metalBody);
+                Matter.Composite.add(gameState.engine.world, metalBody);
+            });
+        }
+
+        function createBall(ballData) {
+            gameState.ball = Matter.Bodies.circle(
+                ballData.x, ballData.y, config.ballSize,
+                {
+                    render: { 
+                        fillStyle: '#ecf0f1',
+                        strokeStyle: '#bdc3c7',
+                        lineWidth: 2
+                    },
+                    friction: config.friction,
+                    frictionAir: config.frictionAir,
+                    label: 'ball',
+                    mass: 3 // 适当的质量
+                }
+            );
+            Matter.Composite.add(gameState.engine.world, gameState.ball);
+        }
+
+        function createPlayerMagnet(startPos) {
+            gameState.playerMagnet = Matter.Bodies.circle(
+                startPos.x, startPos.y, config.playerMagnetSize,
+                {
+                    isStatic: true,
+                    render: {
+                        fillStyle: '#e74c3c', // 默认N极红色
+                        strokeStyle: '#f1c40f',
+                        lineWidth: 3,
+                        text: {
+                            content: 'N',
+                            color: 'white',
+                            size: 24
+                        }
+                    },
+                    polarity: 'N',
+                    label: 'playerMagnet',
+                    mass: 15 // 较大的质量以产生更强的磁力
+                }
+            );
+            Matter.Composite.add(gameState.engine.world, gameState.playerMagnet);
+        }
+
+        function setupGoalAndRender(goalData) {
+            const goal = {
+                x: goalData.x,
+                y: goalData.y,
+                radius: goalData.radius
+            };
+            
+            // 自定义渲染
+            Matter.Events.on(gameState.render, 'afterRender', function() {
+                const context = gameState.render.context;
+                
+                // 绘制目标区域
+                context.beginPath();
+                context.arc(goal.x, goal.y, goal.radius, 0, Math.PI * 2);
+                context.fillStyle = 'gold';
+                context.fill();
+                
+                // 绘制五角星
+                drawStar(context, goal.x, goal.y, 5, goal.radius, goal.radius / 2, 'black');
+            });
+        }
+
+        function setupCollisionDetection(goalData) {
+            Matter.Events.on(gameState.engine, 'collisionStart', function(event) {
+                const pairs = event.pairs;
+                
+                for (let i = 0; i < pairs.length; i++) {
+                    const pair = pairs[i];
+                    
+                    // 检测小球是否到达目标区域
+                    const ballPosition = gameState.ball.position;
+                    const goal = { x: goalData.x, y: goalData.y };
+                    const distanceToGoal = Matter.Vector.magnitude(Matter.Vector.sub(ballPosition, goal));
+                    
+                    if (distanceToGoal < goalData.radius + config.ballSize) {
+                        levelComplete();
+                    }
+                }
+            });
+        }
+
+        function setupMagneticForces() {
+            Matter.Events.on(gameState.engine, 'beforeUpdate', function() {
+                // 玩家磁铁对小球的作用力
+                applyMagneticForce(gameState.playerMagnet, gameState.ball);
+                
+                // 固定磁铁对小球的作用力
+                gameState.fixedMagnets.forEach(magnet => {
+                    applyMagneticForce(magnet.body, gameState.ball);
+                });
+                
+                // 玩家磁铁对可移动金属块的作用力
+                gameState.movableMetals.forEach(metal => {
+                    applyMagneticForce(gameState.playerMagnet, metal);
+                });
+                
+                // 固定磁铁对可移动金属块的作用力
+                gameState.fixedMagnets.forEach(magnet => {
+                    gameState.movableMetals.forEach(metal => {
+                        applyMagneticForce(magnet.body, metal);
+                    });
+                });
+            });
+        }
+
+        // 计算并应用两个物体之间的磁力
+        function applyMagneticForce(source, target) {
+            if (!source || !target) return;
+            
+            // 计算距离和方向
+            const direction = Matter.Vector.sub(target.position, source.position);
+            const distance = Matter.Vector.magnitude(direction);
+            
+            // 如果距离太近或太远，不施加力
+            if (distance < config.minDistance || distance > 300) return;
+            
+            const normalizedDirection = Matter.Vector.normalise(direction);
+            
+            // 计算力的大小
+            let forceMagnitude = 0;
+            
+            if (target.label === 'ball' || target.label === 'metal') {
+                // 对金属小球或金属块只有吸引力
+                forceMagnitude = config.magneticForce * source.mass * target.mass / Math.max(distance * distance, 100);
+            } else if (source.polarity && target.polarity) {
+                // 两个磁铁之间的力
+                if (source.polarity === target.polarity) {
+                    // 排斥力
+                    forceMagnitude = -config.magneticForce * source.mass * target.mass / Math.max(distance * distance, 100);
+                } else {
+                    // 吸引力
+                    forceMagnitude = config.magneticForce * source.mass * target.mass / Math.max(distance * distance, 100);
+                }
+            }
+            
+            // 应用力
+            const force = Matter.Vector.mult(normalizedDirection, forceMagnitude);
+            Matter.Body.applyForce(target, target.position, Matter.Vector.neg(force));
+        }
+
+        // 设置事件监听器
+        function setupEventListeners() {
+            const canvas = document.getElementById('game-canvas');
+            const resetBtn = document.getElementById('reset-btn');
+            const switchPolarityBtn = document.getElementById('switch-polarity');
+            
+            // 鼠标拖动玩家磁铁
+            canvas.addEventListener('mousedown', function(event) {
+                const mousePosition = getMousePosition(canvas, event);
+                const playerPosition = gameState.playerMagnet.position;
+                const distance = Matter.Vector.magnitude(Matter.Vector.sub(mousePosition, playerPosition));
+                
+                if (distance < config.playerMagnetSize * 1.5) {
+                    gameState.isDragging = true;
+                }
+            });
+            
+            canvas.addEventListener('mousemove', function(event) {
+                if (gameState.isDragging && gameState.playerMagnet) {
+                    const mousePosition = getMousePosition(canvas, event);
+                    Matter.Body.setPosition(gameState.playerMagnet, mousePosition);
+                }
+            });
+            
+            canvas.addEventListener('mouseup', function() {
+                gameState.isDragging = false;
+            });
+            
+            canvas.addEventListener('mouseleave', function() {
+                gameState.isDragging = false;
+            });
+            
+            // 重置按钮
+            resetBtn.addEventListener('click', function() {
+                startLevel(gameState.currentLevel);
+            });
+            
+            // 切换磁极按钮
+            switchPolarityBtn.addEventListener('click', function() {
+                togglePolarity();
+            });
+            
+            // 键盘事件
+            document.addEventListener('keydown', function(event) {
+                if (event.code === 'Space') {
+                    togglePolarity();
+                    event.preventDefault();
+                } else if (event.code === 'KeyR') {
+                    startLevel(gameState.currentLevel);
+                }
+            });
+        }
+
+        // 切换磁极
+        function togglePolarity() {
+            gameState.playerPolarity = gameState.playerPolarity === 'N' ? 'S' : 'N';
+            
+            if (!gameState.playerMagnet) return;
+            
+            // 更新玩家磁铁外观
+            gameState.playerMagnet.render.fillStyle = gameState.playerPolarity === 'N' ? '#e74c3c' : '#3498db';
+            gameState.playerMagnet.render.text.content = gameState.playerPolarity;
+            gameState.playerMagnet.polarity = gameState.playerPolarity;
+            
+            // 更新按钮
+            const switchPolarityBtn = document.getElementById('switch-polarity');
+            switchPolarityBtn.textContent = gameState.playerPolarity + '极';
+            switchPolarityBtn.className = gameState.playerPolarity;
+        }
+
+        // 关卡完成
+        function levelComplete() {
+            playSound('success');
+            alert(`恭喜完成关卡 ${gameState.currentLevel + 1}!`);
+            
+            // 如果有下一关，加载下一关
+            if (gameState.currentLevel < gameState.levels.length - 1) {
+                startLevel(gameState.currentLevel + 1);
+            } else {
+                alert('恭喜你完成了所有关卡！');
+            }
+        }
+
+        // 辅助函数：获取鼠标位置
+        function getMousePosition(canvas, event) {
+            const rect = canvas.getBoundingClientRect();
+            return {
+                x: (event.clientX - rect.left) * (canvas.width / rect.width),
+                y: (event.clientY - rect.top) * (canvas.height / rect.height)
+            };
+        }
+
+        // 辅助函数：绘制五角星
+        function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius, color) {
+            let rot = Math.PI / 2 * 3;
+            let x = cx;
+            let y = cy;
+            let step = Math.PI / spikes;
+
+            ctx.beginPath();
+            ctx.moveTo(cx, cy - outerRadius);
+            
+            for (let i = 0; i < spikes; i++) {
+                x = cx + Math.cos(rot) * outerRadius;
+                y = cy + Math.sin(rot) * outerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+
+                x = cx + Math.cos(rot) * innerRadius;
+                y = cy + Math.sin(rot) * innerRadius;
+                ctx.lineTo(x, y);
+                rot += step;
+            }
+            
+            ctx.lineTo(cx, cy - outerRadius);
+            ctx.closePath();
+            ctx.fillStyle = color;
+            ctx.fill();
+        }
+
+        // 播放音效
+        function playSound(type) {
+            // 实际项目中可以添加音效文件
+            console.log(`播放音效: ${type}`);
+        }
+
+        // 启动游戏
+        window.onload = initGame;
+    </script>
+</body>
+</html>

@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>软体物理模拟（Jelly Physics）</title>
+  <style>
+    body { 
+      margin: 0; 
+      overflow: hidden; 
+      background: #222;
+      font-family: Arial, sans-serif;
+    }
+    canvas { 
+      display: block; 
+    }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      border-radius: 10px;
+      max-width: 300px;
+    }
+    .control-group {
+      margin-bottom: 10px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+    }
+    .control-group:last-child {
+      border-bottom: none;
+    }
+    label {
+      display: inline-block;
+      width: 120px;
+      margin-right: 10px;
+    }
+    button, input[type="range"], input[type="color"] {
+      cursor: pointer;
+    }
+    button {
+      background: #444;
+      color: white;
+      border: none;
+      padding: 5px 10px;
+      margin: 2px;
+      border-radius: 3px;
+    }
+    button:hover {
+      background: #555;
+    }
+    button.active {
+      background: #0078d7;
+    }
+    #gameUI {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: white;
+      background: rgba(0,0,0,0.7);
+      padding: 15px;
+      border-radius: 10px;
+      text-align: right;
+    }
+    #gameUI h2 {
+      margin: 0 0 10px 0;
+    }
+    #gameUI p {
+      margin: 5px 0;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  
+  <div id="controls">
+    <div class="control-group">
+      <h3>物理参数</h3>
+      <div>
+        <label for="stiffness">硬度:</label>
+        <input type="range" id="stiffness" min="0.05" max="0.5" step="0.05" value="0.2">
+        <span id="stiffnessValue">0.2</span>
+      </div>
+      <div>
+        <label for="damping">阻尼:</label>
+        <input type="range" id="damping" min="0.9" max="0.99" step="0.01" value="0.98">
+        <span id="dampingValue">0.98</span>
+      </div>
+      <div>
+        <label for="gravity">重力:</label>
+        <input type="range" id="gravity" min="0" max="0.5" step="0.02" value="0.2">
+        <span id="gravityValue">0.2</span>
+      </div>
+    </div>
+    
+    <div class="control-group">
+      <h3>交互模式</h3>
+      <div class="mode-buttons">
+        <button class="mode-btn active" data-mode="1">拖拽</button>
+        <button class="mode-btn" data-mode="2">推动</button>
+        <button class="mode-btn" data-mode="3">爆炸</button>
+        <button class="mode-btn" data-mode="4">吸引</button>
+      </div>
+    </div>
+    
+    <div class="control-group">
+      <h3>软体控制</h3>
+      <div>
+        <button id="addJellyBtn">添加软体</button>
+        <button id="removeJellyBtn">移除软体</button>
+      </div>
+      <div>
+        <label for="jellyColor">颜色:</label>
+        <input type="color" id="jellyColor" value="#ff6464">
+      </div>
+      <div>
+        <button id="pinBtn">固定中心</button>
+        <button id="resetBtn">重置位置</button>
+      </div>
+    </div>
+    
+    <div class="control-group">
+      <h3>游戏控制</h3>
+      <div>
+        <button id="startBtn">开始游戏</button>
+        <button id="addObstacleBtn">添加障碍</button>
+        <button id="addWindBtn">添加风区</button>
+      </div>
+    </div>
+  </div>
+  
+  <div id="gameUI">
+    <h2>果冻物理模拟</h2>
+    <p>得分: <span id="scoreDisplay">0</span></p>
+    <p>时间: <span id="timeDisplay">60</span>秒</p>
+    <p>收集: <span id="targetsDisplay">0</span>/<span id="totalTargets">0</span></p>
+    <p id="gameMessage"></p>
+  </div>
+
+  <script>
+    // 主游戏对象
+    const game = {
+      canvas: null,
+      ctx: null,
+      jellies: [],
+      environment: null,
+      particleSystem: null,
+      mouse: { x: 0, y: 0, isDragging: false, force: null },
+      interactionModes: {
+        DRAG: 1,
+        PUSH: 2,
+        EXPLODE: 3,
+        ATTRACT: 4
+      },
+      currentMode: 1,
+      state: {
+        score: 0,
+        targets: [],
+        timeLeft: 60,
+        gameActive: false,
+        level: 1
+      },
+      selectedJelly: null,
+      lastTime: 0,
+      fps: 0
+    };
+	// 显示游戏介绍弹窗
+	function showIntro() {
+		const introHtml = `
+			<div style="
+				position: fixed;
+				top: 50%;
+				left: 50%;
+				transform: translate(-50%, -50%);
+				background: rgba(10, 14, 36, 0.95);
+				border: 2px solid #FFA500;
+				border-radius: 10px;
+				padding: 20px;
+				width: 600px;
+				max-width: 90%;
+				text-align: center;
+				z-index: 100;
+				box-shadow: 0 0 25px #FFA500;
+				user-select: text; /* 允许文本选择 */
+				-webkit-user-select: text; /* Safari兼容 */
+				-moz-user-select: text; /* Firefox兼容 */
+			">
+				<h2 style="color: #FFA500; margin-top: 0; text-shadow: 0 0 8px #FFA500;">软体物理模拟（Jelly Physics）</h2>
+				
+				<div style="
+					background: rgba(0, 0, 0, 0.3);
+					border: 1px solid #00aaff;
+					border-radius: 5px;
+					padding: 10px;
+					margin: 15px 0;
+					height: 350px;
+					overflow-y: auto;
+					text-align: left;
+					color: #e0e0e0;
+					font-size: 14px;
+				">
+					<p><strong>游戏说明：</strong></p>
+					<p>这个完整的软体物理模拟游戏包含以下功能：</p>
+					<p>多种交互模式：</p>
+					<p>拖拽：直接移动软体</p>
+					<p>推动：用鼠标推动软体</p>
+					<p>爆炸：从点击点向外推开软体</p>
+					<p>吸引：将软体拉向点击点</p>
+					<p>物理参数调节：</p>
+					<p>硬度：控制软体的弹性</p>
+					<p>阻尼：控制振动衰减速度</p>
+					<p>重力：控制下落速度</p>
+					<p>游戏模式：</p>
+					<p>收集目标获得分数</p>
+					<p>限时挑战</p>
+					<p>多关卡系统</p>
+					<p>环境元素：</p>
+					<p>障碍物：与软体碰撞</p>
+					<p>风区：持续影响软体运动</p>
+					<p>视觉效果：</p>
+					<p>形变颜色变化</p>
+					<p>粒子效果</p>
+					<p>目标脉冲动画</p>
+					<p>控制选项：</p>
+					<p>添加/移除软体</p>
+					<p>固定软体中心</p>
+					<p>重置位置</p>
+					<p>自定义颜色</p>
+				</div>
+				
+				<button style="
+					background: linear-gradient(to bottom, #FFA500, #00a0ff);
+					color: #0a0e24;
+					border: none;
+					padding: 10px 25px;
+					border-radius: 5px;
+					margin-top: 10px;
+					cursor: pointer;
+					font-weight: bold;
+					font-size: 16px;
+					box-shadow: 0 0 10px #FFA500;
+					transition: all 0.2s;
+				" 
+				onmouseover="this.style.boxShadow='0 0 15px #FFA500'" 
+				onmouseout="this.style.boxShadow='0 0 10px #FFA500'"
+				onclick="document.getElementById('introModal').remove()">
+					开始游戏
+				</button>
+			</div>
+		`;
+		
+		const div = document.createElement('div');
+		div.id = 'introModal';
+		div.innerHTML = introHtml;
+		document.body.appendChild(div);
+	}  
+	// 显示游戏介绍弹窗
+
+    // 初始化游戏
+    function initGame() {
+	  // 显示介绍弹窗
+	  showIntro();    
+			
+      game.canvas = document.getElementById('canvas');
+      game.ctx = game.canvas.getContext('2d');
+      
+      // 设置画布大小
+      resizeCanvas();
+      window.addEventListener('resize', resizeCanvas);
+      
+      // 创建初始软体
+      game.selectedJelly = new JellyBody(game.canvas.width/2, game.canvas.height/3, 60);
+      game.jellies.push(game.selectedJelly);
+      
+      // 创建环境和粒子系统
+      game.environment = new Environment();
+      game.particleSystem = new ParticleSystem();
+      
+      // 添加一些初始障碍物
+      game.environment.addObstacle(100, 300, 200, 30);
+      game.environment.addObstacle(500, 400, 200, 30);
+      game.environment.addWindZone(300, 500, 200, 100, 0.3);
+      
+      // 设置事件监听
+      setupEventListeners();
+      setupControls();
+      
+      // 开始游戏循环
+      requestAnimationFrame(gameLoop);
+    }
+    
+    // 调整画布大小
+    function resizeCanvas() {
+      game.canvas.width = window.innerWidth;
+      game.canvas.height = window.innerHeight;
+      
+      // 重置软体位置
+      if (game.jellies.length > 0) {
+        game.jellies[0].reset(game.canvas.width/2, game.canvas.height/3);
+      }
+    }
+    
+    // 设置事件监听
+    function setupEventListeners() {
+      // 鼠标事件
+      game.canvas.addEventListener('mousemove', handleMouseMove);
+      game.canvas.addEventListener('mousedown', () => { game.mouse.isDragging = true; });
+      game.canvas.addEventListener('mouseup', () => { game.mouse.isDragging = false; game.mouse.force = null; });
+      
+      // 触摸事件
+      game.canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+      game.canvas.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        game.mouse.isDragging = true;
+        game.mouse.x = e.touches[0].clientX;
+        game.mouse.y = e.touches[0].clientY;
+      });
+      game.canvas.addEventListener('touchend', () => { game.mouse.isDragging = false; game.mouse.force = null; });
+      
+      // 键盘控制
+      document.addEventListener('keydown', handleKeyDown);
+    }
+    
+    // 鼠标移动处理
+    function handleMouseMove(e) {
+      game.mouse.x = e.clientX;
+      game.mouse.y = e.clientY;
+      updateMouseForce();
+    }
+    
+    // 触摸移动处理
+    function handleTouchMove(e) {
+      e.preventDefault();
+      game.mouse.x = e.touches[0].clientX;
+      game.mouse.y = e.touches[0].clientY;
+      updateMouseForce();
+    }
+    
+    // 更新鼠标力场
+    function updateMouseForce() {
+      if (game.mouse.isDragging) {
+        switch(game.currentMode) {
+          case game.interactionModes.DRAG:
+            if (game.selectedJelly) {
+              game.selectedJelly.centerPoint.x = game.mouse.x;
+              game.selectedJelly.centerPoint.y = game.mouse.y;
+            }
+            break;
+          case game.interactionModes.PUSH:
+            game.mouse.force = {
+              x: game.mouse.x,
+              y: game.mouse.y,
+              radius: 100,
+              strength: 15,
+              type: 'push'
+            };
+            break;
+          case game.interactionModes.EXPLODE:
+            game.mouse.force = {
+              x: game.mouse.x,
+              y: game.mouse.y,
+              radius: 150,
+              strength: -30,
+              type: 'explode'
+            };
+            break;
+          case game.interactionModes.ATTRACT:
+            game.mouse.force = {
+              x: game.mouse.x,
+              y: game.mouse.y,
+              radius: 120,
+              strength: 20,
+              type: 'attract'
+            };
+            break;
+        }
+      }
+    }
+    
+    // 键盘控制
+    function handleKeyDown(e) {
+      if (e.key === 'r' || e.key === 'R') {
+        resetJellies();
+      } else if (e.key === '+') {
+        adjustStiffness(0.05);
+      } else if (e.key === '-') {
+        adjustStiffness(-0.05);
+      } else if (e.key === 'p' || e.key === 'P') {
+        togglePinCenter();
+      } else if (e.key === 'd' || e.key === 'D') {
+        game.currentMode = game.interactionModes.DRAG;
+        setActiveModeButton(1);
+      } else if (e.key === 'f' || e.key === 'F') {
+        game.currentMode = game.interactionModes.PUSH;
+        setActiveModeButton(2);
+      } else if (e.key === 'x' || e.key === 'X') {
+        game.currentMode = game.interactionModes.EXPLODE;
+        setActiveModeButton(3);
+      } else if (e.key === 'a' || e.key === 'A') {
+        game.currentMode = game.interactionModes.ATTRACT;
+        setActiveModeButton(4);
+      }
+    }
+    
+    // 设置控制面板
+    function setupControls() {
+      // 物理参数滑块
+      document.getElementById('stiffness').addEventListener('input', function() {
+        const value = parseFloat(this.value);
+        document.getElementById('stiffnessValue').textContent = value.toFixed(2);
+        game.jellies.forEach(jelly => jelly.stiffness = value);
+      });
+      
+      document.getElementById('damping').addEventListener('input', function() {
+        const value = parseFloat(this.value);
+        document.getElementById('dampingValue').textContent = value.toFixed(2);
+        game.jellies.forEach(jelly => jelly.damping = value);
+      });
+      
+      document.getElementById('gravity').addEventListener('input', function() {
+        const value = parseFloat(this.value);
+        document.getElementById('gravityValue').textContent = value.toFixed(2);
+      });
+      
+      // 交互模式按钮
+      const modeButtons = document.querySelectorAll('.mode-btn');
+      modeButtons.forEach(btn => {
+        btn.addEventListener('click', function() {
+          game.currentMode = parseInt(this.dataset.mode);
+          setActiveModeButton(game.currentMode);
+        });
+      });
+      
+      // 软体控制按钮
+      document.getElementById('addJellyBtn').addEventListener('click', addNewJelly);
+      document.getElementById('removeJellyBtn').addEventListener('click', removeJelly);
+      document.getElementById('pinBtn').addEventListener('click', togglePinCenter);
+      document.getElementById('resetBtn').addEventListener('click', resetJellies);
+      document.getElementById('jellyColor').addEventListener('input', function() {
+        if (game.selectedJelly) {
+          game.selectedJelly.setColor(this.value);
+        }
+      });
+      
+      // 游戏控制按钮
+      document.getElementById('startBtn').addEventListener('click', startGame);
+      document.getElementById('addObstacleBtn').addEventListener('click', addRandomObstacle);
+      document.getElementById('addWindBtn').addEventListener('click', addRandomWindZone);
+    }
+    
+    // 设置活动模式按钮
+    function setActiveModeButton(mode) {
+      document.querySelectorAll('.mode-btn').forEach(btn => {
+        btn.classList.toggle('active', parseInt(btn.dataset.mode) === mode);
+      });
+    }
+    
+    // 添加新软体
+    function addNewJelly() {
+      const x = Math.random() * (game.canvas.width - 200) + 100;
+      const y = Math.random() * (game.canvas.height/2) + 50;
+      const radius = 40 + Math.random() * 40;
+      const newJelly = new JellyBody(x, y, radius);
+      
+      // 设置颜色
+      const colorInput = document.getElementById('jellyColor');
+      newJelly.setColor(colorInput.value);
+      
+      game.jellies.push(newJelly);
+      game.selectedJelly = newJelly;
+    }
+    
+    // 移除软体
+    function removeJelly() {
+      if (game.jellies.length > 1) {
+        game.jellies.pop();
+        game.selectedJelly = game.jellies[game.jellies.length - 1];
+      }
+    }
+    
+    // 固定/释放中心点
+    function togglePinCenter() {
+      if (game.selectedJelly) {
+        game.selectedJelly.togglePinCenter();
+        document.getElementById('pinBtn').textContent = 
+          game.selectedJelly.centerPoint.pinned ? "释放中心" : "固定中心";
+      }
+    }
+    
+    // 重置软体位置
+    function resetJellies() {
+      game.jellies.forEach((jelly, index) => {
+        const x = game.canvas.width/(game.jellies.length+1) * (index+1);
+        const y = game.canvas.height/3;
+        jelly.reset(x, y);
+      });
+    }
+    
+    // 调整硬度
+    function adjustStiffness(delta) {
+      const stiffnessInput = document.getElementById('stiffness');
+      let newValue = parseFloat(stiffnessInput.value) + delta;
+      newValue = Math.max(0.05, Math.min(0.5, newValue));
+      stiffnessInput.value = newValue.toFixed(2);
+      document.getElementById('stiffnessValue').textContent = newValue.toFixed(2);
+      game.jellies.forEach(jelly => jelly.stiffness = newValue);
+    }
+    
+    // 开始游戏
+    function startGame() {
+      game.state.score = 0;
+      game.state.timeLeft = 60;
+      game.state.gameActive = true;
+      game.state.targets = [];
+      game.state.level = 1;
+      
+      // 创建初始目标
+      spawnTargets(3 + game.state.level);
+      
+      updateGameUI();
+      document.getElementById('gameMessage').textContent = "";
+    }
+    
+    // 生成目标
+    function spawnTargets(count) {
+      for (let i = 0; i < count; i++) {
+        const x = Math.random() * (game.canvas.width - 100) + 50;
+        const y = Math.random() * (game.canvas.height - 200) + 50;
+        const radius = 15 + Math.random() * 10;
+        game.state.targets.push(new Target(x, y, radius));
+      }
+      document.getElementById('totalTargets').textContent = count;
+    }
+    
+    // 添加随机障碍物
+    function addRandomObstacle() {
+      const width = 100 + Math.random() * 150;
+      const height = 20 + Math.random() * 30;
+      const x = Math.random() * (game.canvas.width - width);
+      const y = Math.random() * (game.canvas.height - height);
+      game.environment.addObstacle(x, y, width, height);
+    }
+    
+    // 添加随机风区
+    function addRandomWindZone() {
+      const width = 100 + Math.random() * 150;
+      const height = 50 + Math.random() * 100;
+      const x = Math.random() * (game.canvas.width - width);
+      const y = Math.random() * (game.canvas.height - height);
+      const strength = 0.1 + Math.random() * 0.4;
+      game.environment.addWindZone(x, y, width, height, strength);
+    }
+    
+    // 更新游戏UI
+    function updateGameUI() {
+      document.getElementById('scoreDisplay').textContent = game.state.score;
+      document.getElementById('timeDisplay').textContent = Math.ceil(game.state.timeLeft);
+      
+      const collected = game.state.targets.filter(t => t.collected).length;
+      document.getElementById('targetsDisplay').textContent = collected;
+    }
+    
+    // 游戏主循环
+    function gameLoop(timestamp) {
+      // 计算FPS
+      if (!game.lastTime) game.lastTime = timestamp;
+      const deltaTime = timestamp - game.lastTime;
+      game.fps = Math.round(1000 / deltaTime);
+      game.lastTime = timestamp;
+      
+      // 清除画布
+      game.ctx.clearRect(0, 0, game.canvas.width, game.canvas.height);
+      
+      // 获取当前重力值
+      const gravity = parseFloat(document.getElementById('gravity').value);
+      
+      // 更新和绘制环境
+      game.environment.draw(game.ctx);
+      
+      // 更新和绘制所有软体
+      game.jellies.forEach(jelly => {
+        jelly.update(gravity, game.mouse.force);
+        jelly.draw(game.ctx);
+      });
+      
+      // 检测软体间碰撞
+      for (let i = 0; i < game.jellies.length; i++) {
+        for (let j = i + 1; j < game.jellies.length; j++) {
+          game.jellies[i].checkCollision(game.jellies[j]);
+        }
+      }
+      
+      // 更新和绘制粒子系统
+      game.particleSystem.update();
+      game.particleSystem.draw(game.ctx);
+      
+      // 游戏逻辑
+      if (game.state.gameActive) {
+        // 更新目标
+        let targetsUpdated = false;
+        game.state.targets.forEach(target => {
+          target.draw(game.ctx);
+          
+          // 检测与所有软体的碰撞
+          for (const jelly of game.jellies) {
+            if (target.checkCollision(jelly)) {
+              game.state.score += 100;
+              game.particleSystem.addParticles(target.x, target.y, 20, target.color);
+              targetsUpdated = true;
+              break;
+            }
+          }
+        });
+        
+        // 移除已收集的目标
+        if (targetsUpdated) {
+          game.state.targets = game.state.targets.filter(t => !t.collected);
+          
+          // 检查是否收集完所有目标
+          if (game.state.targets.length === 0) {
+            game.state.level++;
+            spawnTargets(3 + game.state.level);
+            document.getElementById('gameMessage').textContent = `进入第 ${game.state.level} 关!`;
+          }
+        }
+        
+        // 更新游戏时间
+        game.state.timeLeft -= deltaTime / 1000;
+        if (game.state.timeLeft <= 0) {
+          game.state.gameActive = false;
+          document.getElementById('gameMessage').textContent = `游戏结束! 最终得分: ${game.state.score}`;
+        }
+        
+        updateGameUI();
+      } else {
+        // 非游戏状态下也绘制目标
+        game.state.targets.forEach(target => target.draw(game.ctx));
+      }
+      
+      // 绘制FPS（调试用）
+      game.ctx.fillStyle = 'white';
+      game.ctx.font = '14px Arial';
+      game.ctx.fillText(`FPS: ${game.fps}`, 10, game.canvas.height - 10);
+      
+      requestAnimationFrame(gameLoop);
+    }
+
+    // 软体类
+    class JellyBody {
+      constructor(x, y, radius, pointsCount = 20) {
+        this.points = [];
+        this.springs = [];
+        this.radius = radius;
+        this.stiffness = parseFloat(document.getElementById('stiffness').value);
+        this.damping = parseFloat(document.getElementById('damping').value);
+        this.restitution = 0.7;
+        this.color = { r: 255, g: 100, b: 100, a: 0.7 };
+        this.stress = 0;
+        
+        // 创建圆形顶点
+        for (let i = 0; i < pointsCount; i++) {
+          const angle = (i / pointsCount) * Math.PI * 2;
+          const px = x + Math.cos(angle) * radius;
+          const py = y + Math.sin(angle) * radius;
+          this.points.push({
+            x: px,
+            y: py,
+            oldx: px,
+            oldy: py,
+            pinned: false
+          });
+        }
+        
+        // 中心点
+        this.centerPoint = { x, y, oldx: x, oldy: y, pinned: false };
+        
+        // 创建弹簧连接
+        for (let i = 0; i < pointsCount; i++) {
+          // 边缘弹簧
+          this.springs.push({
+            pointA: i,
+            pointB: (i + 1) % pointsCount,
+            length: this.calcDistance(
+              this.points[i].x, this.points[i].y,
+              this.points[(i + 1) % pointsCount].x, this.points[(i + 1) % pointsCount].y
+            )
+          });
+          
+          // 连接到中心点的弹簧
+          this.springs.push({
+            pointA: i,
+            pointB: -1, // -1表示中心点
+            length: radius * 0.9
+          });
+          
+          // 交叉弹簧增加稳定性
+          if (i % 2 === 0) {
+            this.springs.push({
+              pointA: i,
+              pointB: (i + Math.floor(pointsCount / 2)) % pointsCount,
+              length: radius * 2 * 0.9
+            });
+          }
+        }
+      }
+      
+      calcDistance(x1, y1, x2, y2) {
+        return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      }
+      
+      update(gravity = 0.2, mouseForce = null) {
+        // 计算平均形变程度
+        let totalDeformation = 0;
+        for (const spring of this.springs) {
+          const pointA = spring.pointA === -1 ? this.centerPoint : this.points[spring.pointA];
+          const pointB = spring.pointB === -1 ? this.centerPoint : this.points[spring.pointB];
+          const dx = pointB.x - pointA.x;
+          const dy = pointB.y - pointA.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          totalDeformation += Math.abs(dist - spring.length) / spring.length;
+        }
+        this.stress = totalDeformation / this.springs.length;
+        
+        // 更新中心点
+        if (!this.centerPoint.pinned) {
+          const vx = (this.centerPoint.x - this.centerPoint.oldx) * this.damping;
+          const vy = (this.centerPoint.y - this.centerPoint.oldy) * this.damping;
+          
+          this.centerPoint.oldx = this.centerPoint.x;
+          this.centerPoint.oldy = this.centerPoint.y;
+          
+          this.centerPoint.x += vx;
+          this.centerPoint.y += vy + gravity;
+        }
+        
+        // Verlet积分更新位置
+        for (const point of this.points) {
+          if (point.pinned) continue;
+          
+          const vx = (point.x - point.oldx) * this.damping;
+          const vy = (point.y - point.oldy) * this.damping;
+          
+          point.oldx = point.x;
+          point.oldy = point.y;
+          
+          point.x += vx;
+          point.y += vy + gravity;
+          
+          // 鼠标力场影响
+          if (mouseForce) {
+            const dx = point.x - mouseForce.x;
+            const dy = point.y - mouseForce.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < mouseForce.radius) {
+              let force = mouseForce.strength * (1 - dist / mouseForce.radius);
+              if (mouseForce.type === 'attract') force *= -1;
+              point.x += dx / dist * force;
+              point.y += dy / dist * force;
+            }
+          }
+        }
+        
+        // 弹簧约束
+        for (const spring of this.springs) {
+          const pointA = spring.pointA === -1 ? this.centerPoint : this.points[spring.pointA];
+          const pointB = spring.pointB === -1 ? this.centerPoint : this.points[spring.pointB];
+          
+          const dx = pointB.x - pointA.x;
+          const dy = pointB.y - pointA.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const diff = (spring.length - dist) / dist * this.stiffness;
+          
+          const offsetX = dx * diff * 0.5;
+          const offsetY = dy * diff * 0.5;
+          
+          if (!pointA.pinned) {
+            pointA.x -= offsetX;
+            pointA.y -= offsetY;
+          }
+          if (!pointB.pinned) {
+            pointB.x += offsetX;
+            pointB.y += offsetY;
+          }
+        }
+        
+        // 环境碰撞检测
+        for (const point of [...this.points, this.centerPoint]) {
+          if (point.pinned) continue;
+          
+          // 画布边界
+          if (point.x < 0) {
+            point.x = 0;
+            point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+          } else if (point.x > game.canvas.width) {
+            point.x = game.canvas.width;
+            point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+          }
+          
+          if (point.y < 0) {
+            point.y = 0;
+            point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+          } else if (point.y > game.canvas.height) {
+            point.y = game.canvas.height;
+            point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+          }
+          
+          // 障碍物碰撞
+          for (const obs of game.environment.obstacles) {
+            if (point.x > obs.x && point.x < obs.x + obs.width &&
+                point.y > obs.y && point.y < obs.y + obs.height) {
+              // 从障碍物中推出
+              if (point.oldx < obs.x) {
+                point.x = obs.x;
+                point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+              } else if (point.oldx > obs.x + obs.width) {
+                point.x = obs.x + obs.width;
+                point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+              }
+              
+              if (point.oldy < obs.y) {
+                point.y = obs.y;
+                point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+              } else if (point.oldy > obs.y + obs.height) {
+                point.y = obs.y + obs.height;
+                point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+              }
+            }
+          }
+          
+          // 风区影响
+          for (const wind of game.environment.windZones) {
+            if (point.x > wind.x && point.x < wind.x + wind.width &&
+                point.y > wind.y && point.y < wind.y + wind.height) {
+              point.x += wind.strength;
+            }
+          }
+        }
+      }
+      
+      draw(ctx) {
+        // 根据形变程度改变颜色
+        const stressFactor = Math.min(1, this.stress * 5);
+        const r = this.color.r + (255 - this.color.r) * stressFactor;
+        const g = this.color.g * (1 - stressFactor);
+        const b = this.color.b * (1 - stressFactor);
+        
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${this.color.a})`;
+        
+        // 绘制软体形状
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let i = 1; i <= this.points.length; i++) {
+          const point = this.points[i % this.points.length];
+          ctx.lineTo(point.x, point.y);
+        }
+        ctx.fill();
+        
+        // 绘制边缘
+        ctx.strokeStyle = `rgba(${r*0.8}, ${g*0.8}, ${b*0.8}, 0.9)`;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // 高应力时添加光泽效果
+        if (this.stress > 0.1) {
+          ctx.save();
+          const gradient = ctx.createRadialGradient(
+            this.centerPoint.x - 20, this.centerPoint.y - 20, 10,
+            this.centerPoint.x - 20, this.centerPoint.y - 20, 30
+          );
+          gradient.addColorStop(0, 'rgba(255,255,255,0.8)');
+          gradient.addColorStop(1, 'rgba(255,255,255,0)');
+          ctx.fillStyle = gradient;
+          ctx.globalCompositeOperation = 'lighter';
+          ctx.fill();
+          ctx.restore();
+        }
+        
+        // 绘制固定中心点（调试用）
+        if (this.centerPoint.pinned) {
+          ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+          ctx.beginPath();
+          ctx.arc(this.centerPoint.x, this.centerPoint.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      reset(x, y) {
+        const angleStep = (Math.PI * 2) / this.points.length;
+        for (let i = 0; i < this.points.length; i++) {
+          const angle = i * angleStep;
+          this.points[i].x = x + Math.cos(angle) * this.radius;
+          this.points[i].y = y + Math.sin(angle) * this.radius;
+          this.points[i].oldx = this.points[i].x;
+          this.points[i].oldy = this.points[i].y;
+        }
+        this.centerPoint.x = x;
+        this.centerPoint.y = y;
+        this.centerPoint.oldx = x;
+        this.centerPoint.oldy = y;
+      }
+      
+      togglePinCenter() {
+        this.centerPoint.pinned = !this.centerPoint.pinned;
+      }
+      
+      setColor(hex) {
+        this.color.r = parseInt(hex.substr(1,2), 16);
+        this.color.g = parseInt(hex.substr(3,2), 16);
+        this.color.b = parseInt(hex.substr(5,2), 16);
+      }
+      
+      checkCollision(otherJelly) {
+        for (const point of this.points) {
+          for (const otherPoint of otherJelly.points) {
+            const dx = point.x - otherPoint.x;
+            const dy = point.y - otherPoint.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < 10) { // 碰撞阈值
+              // 互相推开
+              const force = 0.5;
+              point.x += dx / dist * force;
+              point.y += dy / dist * force;
+              otherPoint.x -= dx / dist * force;
+              otherPoint.y -= dy / dist * force;
+            }
+          }
+        }
+      }
+    }
+
+    // 环境类
+    class Environment {
+      constructor() {
+        this.obstacles = [];
+        this.windZones = [];
+      }
+      
+      addObstacle(x, y, width, height) {
+        this.obstacles.push({ x, y, width, height });
+      }
+      
+      addWindZone(x, y, width, height, strength) {
+        this.windZones.push({ x, y, width, height, strength });
+      }
+      
+      draw(ctx) {
+        // 绘制障碍物
+        ctx.fillStyle = 'rgba(80, 80, 200, 0.8)';
+        for (const obs of this.obstacles) {
+          ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+        }
+        
+        // 绘制风区
+        ctx.fillStyle = 'rgba(200, 200, 100, 0.3)';
+        for (const wind of this.windZones) {
+          ctx.fillRect(wind.x, wind.y, wind.width, wind.height);
+          
+          // 绘制风向指示
+          ctx.strokeStyle = 'rgba(255, 255, 0, 0.7)';
+          ctx.beginPath();
+          ctx.moveTo(wind.x + wind.width/2, wind.y + wind.height/2);
+          ctx.lineTo(wind.x + wind.width/2 + wind.strength * 30, wind.y + wind.height/2);
+          ctx.lineTo(wind.x + wind.width/2 + wind.strength * 25, wind.y + wind.height/2 - 5);
+          ctx.moveTo(wind.x + wind.width/2 + wind.strength * 30, wind.y + wind.height/2);
+          ctx.lineTo(wind.x + wind.width/2 + wind.strength * 25, wind.y + wind.height/2 + 5);
+          ctx.stroke();
+        }
+      }
+    }
+
+    // 目标类
+    class Target {
+      constructor(x, y, radius) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.collected = false;
+        this.color = `hsl(${Math.random() * 360}, 80%, 60%)`;
+        this.pulse = 0;
+      }
+      
+      draw(ctx) {
+        if (this.collected) return;
+        
+        this.pulse += 0.05;
+        const pulseSize = Math.sin(this.pulse) * 2;
+        
+        ctx.fillStyle = this.color;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius + pulseSize, 0, Math.PI * 2);
+        ctx.fill();
+        
+        ctx.strokeStyle = 'white';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // 添加光晕效果
+        ctx.save();
+        const gradient = ctx.createRadialGradient(
+          this.x, this.y, this.radius * 0.5,
+          this.x, this.y, this.radius * 2
+        );
+        gradient.addColorStop(0, this.color.replace(')', ', 0.8)'));
+        gradient.addColorStop(1, this.color.replace(')', ', 0)'));
+        ctx.fillStyle = gradient;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.beginPath();
+        ctx.arc(this.x, this.y, this.radius * 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+      
+      checkCollision(jelly) {
+        if (this.collected) return false;
+        
+        for (const point of jelly.points) {
+          const dx = point.x - this.x;
+          const dy = point.y - this.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          
+          if (dist < this.radius) {
+            this.collected = true;
+            return true;
+          }
+        }
+        return false;
+      }
+    }
+
+    // 粒子系统类
+    class ParticleSystem {
+      constructor() {
+        this.particles = [];
+      }
+      
+      addParticles(x, y, count, color) {
+        for (let i = 0; i < count; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const speed = 0.5 + Math.random() * 3;
+          this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            radius: Math.random() * 3 + 1,
+            color,
+            life: 30 + Math.random() * 60
+          });
+        }
+      }
+      
+      update() {
+        for (let i = this.particles.length - 1; i >= 0; i--) {
+          const p = this.particles[i];
+          p.x += p.vx;
+          p.y += p.vy;
+          p.vy += 0.05; // 重力
+          p.life--;
+          
+          if (p.life <= 0) {
+            this.particles.splice(i, 1);
+          }
+        }
+      }
+      
+      draw(ctx) {
+        for (const p of this.particles) {
+          ctx.fillStyle = p.color;
+          ctx.globalAlpha = p.life / 90;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // 启动游戏
+    initGame();
+  </script>
+</body>
+</html>

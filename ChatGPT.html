@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>动画天气卡片</title>
+    <style>
+        body {
+            background: #121212;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        .buttons {
+            margin-bottom: 20px;
+        }
+        .buttons button {
+            background: #333;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            cursor: pointer;
+            border-radius: 5px;
+        }
+        .buttons button.active {
+            background: #4CAF50;
+        }
+        .weather-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+        }
+        .card {
+            width: 150px;
+            height: 200px;
+            background: #1E1E1E;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .wind .tree {
+            width: 30px;
+            height: 50px;
+            background: green;
+            position: absolute;
+            bottom: 10px;
+            animation: sway 2s infinite alternate ease-in-out;
+        }
+        @keyframes sway {
+            0% { transform: rotate(-5deg); }
+            100% { transform: rotate(5deg); }
+        }
+        .rain .drop {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: cyan;
+            animation: fall 1s linear infinite;
+        }
+        @keyframes fall {
+            0% { transform: translateY(-20px); }
+            100% { transform: translateY(200px); }
+        }
+        .sun {
+            width: 50px;
+            height: 50px;
+            background: yellow;
+            border-radius: 50%;
+            position: absolute;
+            animation: glow 3s infinite alternate;
+        }
+        @keyframes glow {
+            0% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+        .snow .flake {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background: white;
+            border-radius: 50%;
+            animation: snowFall 3s linear infinite;
+        }
+        @keyframes snowFall {
+            0% { transform: translateY(-20px); }
+            100% { transform: translateY(200px); }
+        }
+    </style>
+</head>
+<body>
+    <div class="buttons">
+        <button onclick="showWeather('wind')">风</button>
+        <button onclick="showWeather('rain')">雨</button>
+        <button onclick="showWeather('sunny')">晴</button>
+        <button onclick="showWeather('snow')">雪</button>
+    </div>
+    <div class="weather-container">
+        <div class="card wind" id="wind"><div class="tree"></div></div>
+        <div class="card rain" id="rain"></div>
+        <div class="card sunny" id="sunny"><div class="sun"></div></div>
+        <div class="card snow" id="snow"></div>
+    </div>
+    <script>
+        function showWeather(type) {
+            document.querySelectorAll('.card').forEach(card => {
+                card.style.opacity = card.classList.contains(type) ? '1' : '0.3';
+            });
+            document.querySelectorAll('.buttons button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            event.target.classList.add('active');
+            
+            if (type === 'rain') {
+                let rainCard = document.getElementById('rain');
+                rainCard.innerHTML = '';
+                for (let i = 0; i < 30; i++) {
+                    let drop = document.createElement('div');
+                    drop.className = 'drop';
+                    drop.style.left = Math.random() * 150 + 'px';
+                    drop.style.animationDuration = (0.5 + Math.random()) + 's';
+                    rainCard.appendChild(drop);
+                }
+            }
+            
+            if (type === 'snow') {
+                let snowCard = document.getElementById('snow');
+                snowCard.innerHTML = '';
+                for (let i = 0; i < 50; i++) {
+                    let flake = document.createElement('div');
+                    flake.className = 'flake';
+                    flake.style.left = Math.random() * 150 + 'px';
+                    flake.style.animationDuration = (1 + Math.random() * 2) + 's';
+                    snowCard.appendChild(flake);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

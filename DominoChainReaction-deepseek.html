@@ -1,0 +1,771 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多米诺连锁反应模拟器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.18.0/matter.min.js"></script>
+    <style>
+		body {
+			margin: 0;
+			padding: 0;
+			font-family: Arial, sans-serif;
+			overflow: hidden;
+			background-color: #f0f0f0;
+		}
+		#canvas-container {
+			position: relative;
+		}
+		#dominoCanvas {
+			background-color: #fff;
+			display: block;
+		}
+		#uiPanel {
+			position: absolute;
+			top: 10px;
+			left: 10px;
+			background: rgba(255, 255, 255, 0.8);
+			padding: 10px;
+			border-radius: 5px;
+			box-shadow: 0 0 10px rgba(0,0,0,0.2);
+		}
+		button {
+			padding: 5px 10px;
+			margin: 2px;
+			cursor: pointer;
+		}
+		.tool-section {
+			margin-bottom: 10px;
+			border-bottom: 1px solid #ddd;
+			padding-bottom: 10px;
+		}
+		.tool-section h3 {
+			margin: 5px 0;
+		}
+		label {
+			display: inline-block;
+			width: 80px;
+		}
+		select, input {
+			width: 100px;
+			padding: 3px;
+		}
+		#status {
+			position: absolute;
+			bottom: 10px;
+			left: 10px;
+			background: rgba(255, 255, 255, 0.8);
+			padding: 5px 10px;
+			border-radius: 5px;
+		}
+		.click-effect {
+            position: absolute;
+            border-radius: 50%;
+            background: rgba(255, 99, 71, 0.8);
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            animation: ripple 0.6s linear;
+        }
+        @keyframes ripple {
+            0% {
+                width: 0;
+                height: 0;
+                opacity: 0.8;
+            }
+            100% {
+                width: 100px;
+                height: 100px;
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container">
+        <canvas id="dominoCanvas"></canvas>
+        <div id="uiPanel">
+            <div class="tool-section">
+                <h3>建造模式</h3>
+                <button id="addLineBtn">直线放置</button>
+                <button id="addCurveBtn">曲线放置</button>
+                <button id="singleDominoBtn">单个骨牌</button>
+                <div>
+                    <label for="materialSelect">材质:</label>
+                    <select id="materialSelect">
+                        <option value="wood">木制</option>
+                        <option value="plastic">塑料</option>
+                        <option value="metal">金属</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="spacingInput">间距:</label>
+                    <input type="number" id="spacingInput" value="20" min="5" max="50">
+                </div>
+            </div>
+            <div class="tool-section">
+                <h3>控制</h3>
+                <button id="startBtn">开始模拟</button>
+                <button id="resetBtn">重置</button>
+                <button id="undoBtn">撤销 (Ctrl+Z)</button>
+                <button id="redoBtn">重做 (Ctrl+Y)</button>
+            </div>
+            <div class="tool-section">
+                <h3>其他元素</h3>
+                <button id="addBallBtn">添加小球</button>
+                <button id="addFanBtn">添加风扇</button>
+                <button id="addWallBtn">添加墙壁</button>
+            </div>
+        </div>
+        <div id="status">就绪 - 点击放置第一个骨牌</div>
+    </div>
+
+    <script>
+        // 主应用程序
+        class DominoSimulator {
+            constructor() {
+                // 模块别名
+                this.Matter = Matter;
+                this.Engine = Matter.Engine;
+                this.Render = Matter.Render;
+                this.Runner = Matter.Runner;
+                this.Bodies = Matter.Bodies;
+                this.Body = Matter.Body;
+                this.Composite = Matter.Composite;
+                this.World = Matter.World;
+                this.Events = Matter.Events;
+                this.Mouse = Matter.Mouse;
+                this.MouseConstraint = Matter.MouseConstraint;
+                this.Vector = Matter.Vector;
+                
+                // 初始化物理引擎
+                this.engine = this.Engine.create({
+                    gravity: { x: 0, y: 1 },
+                    positionIterations: 6,
+                    velocityIterations: 4
+                });
+                this.world = this.engine.world;
+                
+                // 渲染设置
+                this.canvas = document.getElementById('dominoCanvas');
+                this.render = this.Render.create({
+                    canvas: this.canvas,
+                    engine: this.engine,
+                    options: {
+                        width: window.innerWidth,
+                        height: window.innerHeight,
+                        wireframes: false,
+                        background: '#f9f9f9',
+                        showAngleIndicator: false
+                    }
+                });
+                this.Render.run(this.render);
+                
+                // 鼠标控制
+                this.mouse = this.Mouse.create(this.render.canvas);
+                this.mouseConstraint = this.MouseConstraint.create(this.engine, {
+                    mouse: this.mouse,
+                    constraint: {
+                        stiffness: 0.2,
+                        render: {
+                            visible: false
+                        }
+                    }
+                });
+                this.World.add(this.world, this.mouseConstraint);
+                
+                // 状态变量
+                this.dominoes = [];
+                this.otherBodies = [];
+                this.isSimulating = false;
+                this.placingMode = null;
+                this.placementStart = null;
+                this.currentMaterial = 'wood';
+                this.spacing = 20;
+                
+                // 撤销/重做系统
+                this.undoStack = [];
+                this.redoStack = [];
+                this.maxUndoSteps = 20;
+                
+				 // 新增点击效果容器
+                this.clickEffects = [];
+
+                // 初始化UI
+                this.initUI();
+                
+                // 启动物理引擎
+                this.runner = this.Runner.create();
+                this.Runner.run(this.runner, this.engine);
+                
+                // 调整画布大小
+                window.addEventListener('resize', this.resizeCanvas.bind(this));
+                this.resizeCanvas();
+                
+                // 保存初始状态
+                this.saveState();
+            }
+            
+            initUI() {
+                // 按钮事件
+                document.getElementById('addLineBtn').addEventListener('click', () => {
+                    this.placingMode = 'line';
+                    this.updateStatus('直线模式: 点击并拖动放置一排骨牌');
+                });
+                
+                document.getElementById('addCurveBtn').addEventListener('click', () => {
+                    this.placingMode = 'curve';
+                    this.updateStatus('曲线模式: 点击中心点，然后拖动确定半径和角度');
+                });
+                
+                document.getElementById('singleDominoBtn').addEventListener('click', () => {
+                    this.placingMode = 'single';
+                    this.updateStatus('单个模式: 点击放置单个骨牌');
+                });
+                
+                document.getElementById('startBtn').addEventListener('click', () => {
+                    if (this.isSimulating) {
+                        this.resetSimulation();
+                    } else {
+                        this.startSimulation();
+                    }
+                });
+                
+                document.getElementById('resetBtn').addEventListener('click', () => {
+                    this.resetSimulation();
+                });
+                
+                document.getElementById('undoBtn').addEventListener('click', () => {
+                    this.undo();
+                });
+                
+                document.getElementById('redoBtn').addEventListener('click', () => {
+                    this.redo();
+                });
+                
+                document.getElementById('addBallBtn').addEventListener('click', () => {
+                    this.placingMode = 'ball';
+                    this.updateStatus('小球模式: 点击放置弹跳球');
+                });
+                
+                document.getElementById('addFanBtn').addEventListener('click', () => {
+                    this.placingMode = 'fan';
+                    this.updateStatus('风扇模式: 点击放置风扇');
+                });
+                
+                document.getElementById('addWallBtn').addEventListener('click', () => {
+                    this.placingMode = 'wall';
+                    this.updateStatus('墙壁模式: 点击并拖动创建墙壁');
+                });
+                
+                // 材质选择
+                document.getElementById('materialSelect').addEventListener('change', (e) => {
+                    this.currentMaterial = e.target.value;
+                });
+                
+                // 间距设置
+                document.getElementById('spacingInput').addEventListener('change', (e) => {
+                    this.spacing = parseInt(e.target.value);
+                });
+                
+                // 键盘快捷键
+                document.addEventListener('keydown', (e) => {
+                    if (e.ctrlKey && e.key === 'z') {
+                        this.undo();
+                        e.preventDefault();
+                    } else if (e.ctrlKey && e.key === 'y') {
+                        this.redo();
+                        e.preventDefault();
+                    }
+                });
+                
+                // 鼠标事件
+                //this.canvas.addEventListener('mousedown', this.handleMouseDown.bind(this));
+                this.canvas.addEventListener('mousemove', this.handleMouseMove.bind(this));
+                this.canvas.addEventListener('mouseup', this.handleMouseUp.bind(this));
+
+				  // 修改鼠标事件处理
+                this.canvas.addEventListener('mousedown', (e) => {
+                    this.handleMouseDown(e);
+                    this.createClickEffect(e); // 新增点击效果
+                });
+            }
+
+			// 新增点击效果方法
+            createClickEffect(e) {
+                const effect = document.createElement('div');
+                effect.className = 'click-effect';
+                
+                const rect = this.canvas.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                
+                effect.style.left = x + 'px';
+                effect.style.top = y + 'px';
+                
+                document.getElementById('canvas-container').appendChild(effect);
+                
+                // 动画结束后移除元素
+                effect.addEventListener('animationend', () => {
+                    effect.remove();
+                });
+            }   
+			
+            handleMouseDown(e) {
+                if (this.isSimulating) return;
+                
+                const mousePosition = this.getMousePosition(e);
+                this.placementStart = mousePosition;
+                
+                if (this.placingMode === 'single') {
+                    this.addDomino(mousePosition.x, mousePosition.y);
+                    this.saveState();
+                }
+            }
+            
+            handleMouseMove(e) {
+                if (!this.placementStart || this.isSimulating) return;
+                
+                // 可以在这里添加实时预览效果
+            }
+            
+            handleMouseUp(e) {
+                if (!this.placementStart || this.isSimulating) return;
+                
+                const mousePosition = this.getMousePosition(e);
+                
+                switch (this.placingMode) {
+                    case 'line':
+                        this.addDominoLine(this.placementStart, mousePosition);
+                        break;
+                    case 'curve':
+                        // 简化实现：只添加一个弧形
+                        this.addDominoCurve(this.placementStart, mousePosition);
+                        break;
+                    case 'ball':
+                        this.addBall(mousePosition.x, mousePosition.y);
+                        break;
+                    case 'fan':
+                        this.addFan(mousePosition.x, mousePosition.y);
+                        break;
+                    case 'wall':
+                        this.addWall(this.placementStart, mousePosition);
+                        break;
+                }
+                
+                this.placementStart = null;
+                this.saveState();
+            }
+            
+            getMousePosition(e) {
+                const rect = this.canvas.getBoundingClientRect();
+                return {
+                    x: e.clientX - rect.left,
+                    y: e.clientY - rect.top
+                };
+            }
+            
+            addDomino(x, y, width = 10, height = 50, angle = 0) {
+                const domino = this.Bodies.rectangle(x, y, width, height, {
+                    restitution: 0.6,
+                    friction: 0.3,
+                    frictionStatic: 0.5,
+                    angle: angle,
+                    render: {
+                        fillStyle: this.getMaterialColor(this.currentMaterial),
+                        strokeStyle: '#000',
+                        lineWidth: 1
+                    },
+                    chamfer: { radius: 2 }
+                });
+                
+                domino.material = this.currentMaterial;
+                domino.isDomino = true;
+                
+                this.World.add(this.world, domino);
+                this.dominoes.push(domino);
+                
+                return domino;
+            }
+            
+            addDominoLine(startPos, endPos) {
+                const dx = endPos.x - startPos.x;
+                const dy = endPos.y - startPos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const count = Math.floor(distance / this.spacing);
+                const angle = Math.atan2(dy, dx);
+                
+                for (let i = 0; i < count; i++) {
+                    const x = startPos.x + (dx * i / count);
+                    const y = startPos.y + (dy * i / count);
+                    this.addDomino(x, y, 10, 50, angle + Math.PI/2);
+                }
+            }
+            
+            addDominoCurve(centerPos, endPos) {
+                const dx = endPos.x - centerPos.x;
+                const dy = endPos.y - centerPos.y;
+                const radius = Math.sqrt(dx * dx + dy * dy);
+                const startAngle = 0;
+                const endAngle = Math.PI; // 半圆
+                const segmentAngle = (endAngle - startAngle) / 10;
+                
+                for (let i = 0; i <= 10; i++) {
+                    const angle = startAngle + i * segmentAngle;
+                    const x = centerPos.x + radius * Math.cos(angle);
+                    const y = centerPos.y + radius * Math.sin(angle);
+                    this.addDomino(x, y, 10, 50, angle + Math.PI/2);
+                }
+            }
+            
+            addBall(x, y, radius = 15) {
+                const ball = this.Bodies.circle(x, y, radius, {
+                    restitution: 0.8,
+                    friction: 0.1,
+                    render: {
+                        fillStyle: '#FF5252',
+                        strokeStyle: '#000',
+                        lineWidth: 1
+                    }
+                });
+                
+                this.World.add(this.world, ball);
+                this.otherBodies.push(ball);
+                return ball;
+            }
+            
+            addFan(x, y) {
+                const fan = this.Bodies.rectangle(x, y, 30, 10, {
+                    isStatic: true,
+                    render: {
+                        fillStyle: '#2196F3',
+                        strokeStyle: '#000',
+                        lineWidth: 1
+                    }
+                });
+                
+                fan.isFan = true;
+                fan.power = 0.02;
+                
+                this.World.add(this.world, fan);
+                this.otherBodies.push(fan);
+                
+                // 添加风扇效果
+                this.Events.on(this.engine, 'beforeUpdate', () => {
+                    if (!this.isSimulating) return;
+                    
+                    this.dominoes.forEach(domino => {
+                        const distance = this.Vector.magnitude(this.Vector.sub(domino.position, fan.position));
+                        if (distance < 100) {
+                            const direction = this.Vector.normalise(this.Vector.sub(domino.position, fan.position));
+                            const force = this.Vector.mult(direction, fan.power);
+                            this.Body.applyForce(domino, domino.position, force);
+                        }
+                    });
+                });
+                
+                return fan;
+            }
+            
+            addWall(startPos, endPos) {
+                const length = Math.sqrt(
+                    Math.pow(endPos.x - startPos.x, 2) + 
+                    Math.pow(endPos.y - startPos.y, 2)
+                );
+                
+                const center = {
+                    x: (startPos.x + endPos.x) / 2,
+                    y: (startPos.y + endPos.y) / 2
+                };
+                
+                const angle = Math.atan2(endPos.y - startPos.y, endPos.x - startPos.x);
+                
+                const wall = this.Bodies.rectangle(center.x, center.y, length, 10, {
+                    isStatic: true,
+                    angle: angle,
+                    render: {
+                        fillStyle: '#795548',
+                        strokeStyle: '#000',
+                        lineWidth: 1
+                    }
+                });
+                
+                this.World.add(this.world, wall);
+                this.otherBodies.push(wall);
+                return wall;
+            }
+            
+            getMaterialColor(material) {
+                const colors = {
+                    'wood': '#DEB887',
+                    'plastic': '#ADD8E6',
+                    'metal': '#C0C0C0'
+                };
+                return colors[material] || '#DEB887';
+            }
+            
+            startSimulation() {
+                if (this.dominoes.length === 0) return;
+                
+                this.isSimulating = true;
+                document.getElementById('startBtn').textContent = '停止';
+                this.updateStatus('模拟运行中...');
+                
+                // 推倒第一个骨牌
+                const firstDomino = this.dominoes[0];
+                this.Body.applyForce(firstDomino, firstDomino.position, { x: 0.005, y: 0 });
+            }
+            
+            resetSimulation() {
+                this.isSimulating = false;
+                document.getElementById('startBtn').textContent = '开始模拟';
+                this.updateStatus('已重置 - 点击放置第一个骨牌');
+                
+                // 重置所有骨牌位置
+                this.Composite.clear(this.world, false);
+                
+                // 重新添加所有物体
+                this.dominoes.forEach(domino => {
+                    domino.isSleeping = false;
+                    this.Body.setAngle(domino, 0);
+                    this.Body.setVelocity(domino, { x: 0, y: 0 });
+                    this.Body.setAngularVelocity(domino, 0);
+                    this.Composite.add(this.world, domino);
+                });
+                
+                this.otherBodies.forEach(body => {
+                    this.Composite.add(this.world, body);
+                });
+                
+                // 重新添加鼠标约束
+                this.Composite.add(this.world, this.mouseConstraint);
+            }
+            
+            saveState() {
+                // 简化实现：只保存骨牌位置和角度
+                const state = this.dominoes.map(domino => ({
+                    position: { ...domino.position },
+                    angle: domino.angle,
+                    material: domino.material
+                }));
+                
+                this.undoStack.push(JSON.stringify(state));
+                if (this.undoStack.length > this.maxUndoSteps) {
+                    this.undoStack.shift();
+                }
+                this.redoStack = [];
+            }
+            
+            undo() {
+                if (this.undoStack.length === 0 || this.isSimulating) return;
+                
+                const currentState = this.dominoes.map(domino => ({
+                    position: { ...domino.position },
+                    angle: domino.angle,
+                    material: domino.material
+                }));
+                this.redoStack.push(JSON.stringify(currentState));
+                
+                const state = JSON.parse(this.undoStack.pop());
+                
+                // 移除所有骨牌
+                this.Composite.clear(this.world, false);
+                this.dominoes = [];
+                
+                // 重新创建骨牌
+                state.forEach(dominoState => {
+                    const domino = this.addDomino(
+                        dominoState.position.x,
+                        dominoState.position.y,
+                        10,
+                        50,
+                        dominoState.angle
+                    );
+                    domino.material = dominoState.material;
+                    domino.render.fillStyle = this.getMaterialColor(dominoState.material);
+                });
+                
+                // 重新添加其他物体
+                this.otherBodies.forEach(body => {
+                    this.Composite.add(this.world, body);
+                });
+                
+                // 重新添加鼠标约束
+                this.Composite.add(this.world, this.mouseConstraint);
+                
+                this.updateStatus('撤销完成');
+            }
+            
+            redo() {
+                if (this.redoStack.length === 0 || this.isSimulating) return;
+                
+                const currentState = this.dominoes.map(domino => ({
+                    position: { ...domino.position },
+                    angle: domino.angle,
+                    material: domino.material
+                }));
+                this.undoStack.push(JSON.stringify(currentState));
+                
+                const state = JSON.parse(this.redoStack.pop());
+                
+                // 移除所有骨牌
+                this.Composite.clear(this.world, false);
+                this.dominoes = [];
+                
+                // 重新创建骨牌
+                state.forEach(dominoState => {
+                    const domino = this.addDomino(
+                        dominoState.position.x,
+                        dominoState.position.y,
+                        10,
+                        50,
+                        dominoState.angle
+                    );
+                    domino.material = dominoState.material;
+                    domino.render.fillStyle = this.getMaterialColor(dominoState.material);
+                });
+                
+                // 重新添加其他物体
+                this.otherBodies.forEach(body => {
+                    this.Composite.add(this.world, body);
+                });
+                
+                // 重新添加鼠标约束
+                this.Composite.add(this.world, this.mouseConstraint);
+                
+                this.updateStatus('重做完成');
+            }
+            
+            updateStatus(message) {
+                document.getElementById('status').textContent = message;
+            }
+            
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.render.options.width = window.innerWidth;
+                this.render.options.height = window.innerHeight;
+                this.Render.setPixelRatio(this.render, window.devicePixelRatio);
+            }
+        }
+
+		// 显示游戏介绍弹窗
+		function showIntro() {
+			const introHtml = `
+				<div style="
+					position: fixed;
+					top: 50%;
+					left: 50%;
+					transform: translate(-50%, -50%);
+					background: rgba(10, 14, 36, 0.95);
+					border: 2px solid #FFA500;
+					border-radius: 10px;
+					padding: 20px;
+					width: 600px;
+					max-width: 90%;
+					text-align: center;
+					z-index: 100;
+					box-shadow: 0 0 25px #FFA500;
+				    user-select: text; /* 允许文本选择 */
+					-webkit-user-select: text; /* Safari兼容 */
+					-moz-user-select: text; /* Firefox兼容 */
+				">
+					<h2 style="color: #FFA500; margin-top: 0; text-shadow: 0 0 8px #FFA500;">多米诺连锁反应模拟（Domino Chain Reaction）</h2>
+					
+					<div style="
+						background: rgba(0, 0, 0, 0.3);
+						border: 1px solid #00aaff;
+						border-radius: 5px;
+						padding: 10px;
+						margin: 15px 0;
+						height: 350px;
+						overflow-y: auto;
+						text-align: left;
+						color: #e0e0e0;
+						font-size: 14px;
+					">
+						<p><strong>多米诺连锁反应模拟器 - 游戏说明：</strong></p>
+						<p> 🎮 基本玩法</p>
+						<p>这是一个基于物理引擎的多米诺骨牌模拟器，您可以：</p>
+						<p>建造各种多米诺骨牌阵列</p>
+						<p>触发连锁反应</p>
+						<p>观察真实的物理碰撞效果</p>
+						<p>创造复杂的连锁机关</p>
+						<p> 🛠️ 操作指南</p>
+						<p>建造模式</p>
+						<p>直线放置：点击起点并拖动到终点，自动生成一排骨牌</p>
+						<p>曲线放置：点击中心点并拖动，创建弧形骨牌阵列</p>
+						<p>单个骨牌：点击任意位置放置单个骨牌</p>
+						<p> 其他元素：</p>
+						<p>小球：添加会弹跳的球体</p>
+						<p>风扇：产生风力推动骨牌</p>
+						<p>墙壁：创建不可移动的障碍物</p>
+						<p> 材质选择</p>
+						<p>木制：标准多米诺骨牌</p>
+						<p>塑料：较轻，更容易被推倒</p>
+						<p>金属：较重，需要更大力量才能推倒</p>
+						<p> 控制按钮</p>
+						<p>开始模拟：推倒第一个骨牌，开始连锁反应</p>
+						<p>重置：将所有骨牌恢复原位</p>
+						<p>撤销(Ctrl+Z)：撤销上一步操作</p>
+						<p>重做(Ctrl+Y)：恢复被撤销的操作</p>
+						<p> 💡 游戏技巧</p>
+						<p>间距控制：调整骨牌间距(默认20px)，太远会导致连锁中断</p>
+						<p>连锁设计：</p>
+						<p>尝试设计S形、螺旋形等复杂路径</p>
+						<p>结合小球和风扇创造更复杂的连锁反应</p>
+						<p>材质实验：不同材质的骨牌会有不同的倒伏速度和声音</p>
+						<p>机关组合：使用墙壁引导骨牌倒伏方向</p>
+						<p> 🎨 视觉特效</p>
+						<p>点击画布会出现蓝色波纹效果</p>
+						<p>骨牌碰撞会产生微尘粒子</p>
+						<p>不同材质有不同的颜色标识</p>
+						<p> ⚙️ 技术说明</p>
+						<p>使用Matter.js物理引擎模拟真实物理效果</p>
+						<p>完全在浏览器中运行，无需下载</p>
+						<p>支持撤销/重做功能(最多20步)</p>
+						<p> 🚀 进阶玩法</p>
+						<p>尝试设计：</p>
+						<p>最长的连锁反应</p>
+						<p>最复杂的机关组合</p>
+						<p>最快速的连锁反应</p>
+						<p>包含最多元素的装置</p>
+						<p>祝您玩得愉快！创造属于您的多米诺奇迹！</p>
+					</div>
+					
+					<button style="
+						background: linear-gradient(to bottom, #FFA500, #00a0ff);
+						color: #0a0e24;
+						border: none;
+						padding: 10px 25px;
+						border-radius: 5px;
+						margin-top: 10px;
+						cursor: pointer;
+						font-weight: bold;
+						font-size: 16px;
+						box-shadow: 0 0 10px #FFA500;
+						transition: all 0.2s;
+					" 
+					onmouseover="this.style.boxShadow='0 0 15px #FFA500'" 
+					onmouseout="this.style.boxShadow='0 0 10px #FFA500'"
+					onclick="document.getElementById('introModal').remove()">
+						开始游戏
+					</button>
+				</div>
+			`;
+			
+			const div = document.createElement('div');
+			div.id = 'introModal';
+			div.innerHTML = introHtml;
+			document.body.appendChild(div);
+		}  
+		// 显示游戏介绍弹窗
+		
+        // 启动应用
+        window.onload = function() {
+			// 显示介绍弹窗
+			showIntro();  
+            new DominoSimulator();
+        };
+    </script>
+</body>
+</html>

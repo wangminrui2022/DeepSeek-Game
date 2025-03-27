@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>重力弹球（Gravity Pinball）</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background: radial-gradient(circle, #0a0e24, #000);
+            font-family: Arial, sans-serif;
+            color: white;
+            user-select: none;
+        }
+        
+        #gameCanvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        
+        #ui {
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            font-size: 24px;
+            text-shadow: 0 0 5px #0000CD;
+        }
+        
+        #lives {
+            position: absolute;
+            top: 50px;
+            right: 20px;
+            font-size: 24px;
+            text-shadow: 0 0 5px #0000CD;
+        }
+        
+        #comboBar {
+            position: absolute;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 10px;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        
+        #comboFill {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(90deg, #0000CD, #00ff88);
+            transition: width 0.1s;
+        }
+        
+        #startMessage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 24px;
+            text-align: center;
+            text-shadow: 0 0 10px #0000CD;
+        }
+        
+        .star {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background-color: gold;
+            clip-path: polygon(
+                50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 
+                50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%
+            );
+            transform: scale(0);
+            transition: transform 0.2s;
+        }
+        
+        .hexagon {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background-color: #ff00aa;
+            clip-path: polygon(
+                25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%
+            );
+            transform: rotate(0deg);
+            animation: rotateHexagon 5s infinite linear;
+        }
+        
+        @keyframes rotateHexagon {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="gameCanvas"></canvas>
+    <div id="ui">Score: <span id="score">0</span></div>
+    <div id="lives">Lives: <span id="lifeCount">3</span></div>
+    <div id="comboBar"><div id="comboFill"></div></div>
+    <div id="catchCount" style="position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); font-size: 20px; text-shadow: 0 0 5px #0000CD; display: none;">
+        Catches: <span id="catchDisplay">0</span>
+    </div>
+    <div id="startMessage">Press SPACE to launch ball<br>Arrow keys to move paddle</div>
+
+    <script>
+        // Game Constants
+        const GRAVITY = 0.2;
+        const DAMPING = 0.9;
+        const PADDLE_SPEED = 12;
+        const PADDLE_INERTIA = 0.7;
+        const BALL_RADIUS = 10;
+        const COMBO_DECAY_RATE = 0.5;
+        const COMBO_THRESHOLD = 5;
+        const CATCH_EFFECT_DURATION = 1000; // 接球特效持续时间(ms)
+        
+        // Game State
+        let canvas, ctx;
+        let ball = { x: 0, y: 0, vx: 0, vy: 0, radius: BALL_RADIUS };
+        let paddle = { x: 0, y: 0, width: 100, height: 15, vx: 0 };
+        let gameWidth, gameHeight;
+        let score = 0;
+        let lives = 3;
+        let comboHits = 0;
+        let comboActive = false;
+        let gameRunning = false;
+        let lastTimestamp = 0;
+        let catchCount = 0; // 接球计数
+        let catchEffectTime = 0; // 接球特效计时器
+        let particles = []; // 粒子效果数组
+        
+        // Obstacles
+        let stars = [];
+        let hexagons = [];
+			
+		// 显示游戏介绍弹窗
+		function showIntro() {
+			const introHtml = `
+				<div style="
+					position: fixed;
+					top: 50%;
+					left: 50%;
+					transform: translate(-50%, -50%);
+					background: rgba(10, 14, 36, 0.95);
+					border: 2px solid #FFA500;
+					border-radius: 10px;
+					padding: 20px;
+					width: 600px;
+					max-width: 90%;
+					text-align: center;
+					z-index: 100;
+					box-shadow: 0 0 25px #FFA500;
+				    user-select: text; /* 允许文本选择 */
+					-webkit-user-select: text; /* Safari兼容 */
+					-moz-user-select: text; /* Firefox兼容 */
+				">
+					<h2 style="color: #FFA500; margin-top: 0; text-shadow: 0 0 8px #FFA500;">重力弹球（Gravity Pinball）</h2>
+					
+					<div style="
+						background: rgba(0, 0, 0, 0.3);
+						border: 1px solid #00aaff;
+						border-radius: 5px;
+						padding: 10px;
+						margin: 15px 0;
+						height: 350px;
+						overflow-y: auto;
+						text-align: left;
+						color: #e0e0e0;
+						font-size: 14px;
+					">
+						<p><strong>游戏说明：</strong></p>
+						<p>• 使用← →箭头键移动挡板</p>
+						<p>• 按空格键发射球</p>
+						<p>• 击中金色星星得5分</p>
+						<p>• 击中紫色六边形得10分</p>
+						<p>• 连续击中可激活连击模式</p>
+						<p>• 掉落球会损失一条生命</p>
+						<p>• 初始有3条生命</p>
+						<p>• 按R键可重置游戏</p>
+					</div>
+					
+					<button style="
+						background: linear-gradient(to bottom, #FFA500, #00a0ff);
+						color: #0a0e24;
+						border: none;
+						padding: 10px 25px;
+						border-radius: 5px;
+						margin-top: 10px;
+						cursor: pointer;
+						font-weight: bold;
+						font-size: 16px;
+						box-shadow: 0 0 10px #FFA500;
+						transition: all 0.2s;
+					" 
+					onmouseover="this.style.boxShadow='0 0 15px #FFA500'" 
+					onmouseout="this.style.boxShadow='0 0 10px #FFA500'"
+					onclick="document.getElementById('introModal').remove()">
+						开始游戏
+					</button>
+				</div>
+			`;
+			
+			const div = document.createElement('div');
+			div.id = 'introModal';
+			div.innerHTML = introHtml;
+			document.body.appendChild(div);
+		}  
+		// 显示游戏介绍弹窗
+
+        // Initialize game
+        function init() {
+            canvas = document.getElementById('gameCanvas');
+            ctx = canvas.getContext('2d');
+            
+            resizeCanvas();
+            window.addEventListener('resize', resizeCanvas);
+            window.addEventListener('keydown', handleKeyDown);
+            window.addEventListener('keyup', handleKeyUp);
+            
+            resetGame();
+
+			// 显示介绍弹窗
+			showIntro();    
+			
+            // Start game loop
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Resize canvas to window size
+        function resizeCanvas() {
+            gameWidth = window.innerWidth;
+            gameHeight = window.innerHeight;
+            canvas.width = gameWidth;
+            canvas.height = gameHeight;
+            
+            // Reposition paddle and ball if game is running
+            if (gameRunning) {
+                paddle.y = gameHeight - 50;
+                paddle.x = (gameWidth - paddle.width) / 2;
+                ball.x = gameWidth / 2;
+                ball.y = gameHeight / 2;
+            }
+            
+            // Create obstacles
+            createObstacles();
+        }
+        
+		// 在 createObstacles() 函数中修改（约第120行）
+		function createObstacles() {
+			stars = [];
+			hexagons = [];
+			
+			// 星星数量增加到30个（原为20个）
+			for (let i = 0; i < 30; i++) {
+				stars.push({
+					x: getDistributedPosition(i, 30, gameWidth - 60, 30), // 更均匀分布
+					y: Math.random() * (gameHeight * 0.65) + 30,
+					width: 15 + Math.random() * 15, // 大小变化范围更大
+					height: 15 + Math.random() * 15,
+					active: true,
+					element: null,
+					scale: Math.random(), // 随机初始缩放状态
+					scaleDirection: Math.random() > 0.5 ? 1 : -1, // 随机初始方向
+					speed: 0.01 + Math.random() * 0.03, // 随机闪烁速度
+					alpha: 0.6 + Math.random() * 0.4 // 随机初始透明度
+				});
+			}
+			
+			// 六边形数量增加到18个（原为12个）
+			for (let i = 0; i < 18; i++) {
+				hexagons.push({
+					x: getDistributedPosition(i, 18, gameWidth - 80, 40),
+					y: Math.random() * (gameHeight * 0.7) + 30,
+					width: 20 + Math.random() * 20,
+					height: 20 + Math.random() * 20,
+					active: true,
+					element: null,
+					rotation: Math.random() * 360,
+					rotationSpeed: 0.3 + Math.random() * 3, // 更宽的旋转速度范围
+					colorOffset: Math.random() * 360 // 颜色相位偏移
+				});
+			}
+			
+			// 添加辅助分布函数
+			function getDistributedPosition(index, total, maxPos, padding) {
+				const segment = maxPos / total;
+				return padding + segment * index + Math.random() * segment * 0.7;
+			}
+			
+			createObstacleElements();
+		}
+        
+        // Create DOM elements for obstacles
+        function createObstacleElements() {
+            // Clear existing elements
+            document.querySelectorAll('.star, .hexagon').forEach(el => el.remove());
+            
+            // Create star elements
+            stars.forEach(star => {
+                if (star.active) {
+                    const el = document.createElement('div');
+                    el.className = 'star';
+                    el.style.left = `${star.x - star.width/2}px`;
+                    el.style.top = `${star.y - star.height/2}px`;
+                    document.body.appendChild(el);
+                    star.element = el;
+                }
+            });
+            
+            // Create hexagon elements
+            hexagons.forEach(hex => {
+                if (hex.active) {
+                    const el = document.createElement('div');
+                    el.className = 'hexagon';
+                    el.style.left = `${hex.x - hex.width/2}px`;
+                    el.style.top = `${hex.y - hex.height/2}px`;
+                    document.body.appendChild(el);
+                    hex.element = el;
+                }
+            });
+        }
+        
+        // Reset game state
+        function resetGame() {
+            score = 0;
+            lives = 3;
+            comboHits = 0;
+            comboActive = false;
+            catchCount = 0;
+            catchEffectTime = 0;
+            particles = [];
+            updateUI();
+            
+            paddle.width = 100;
+            paddle.height = 15;
+            paddle.x = (gameWidth - paddle.width) / 2;
+            paddle.y = gameHeight - 50;
+            paddle.vx = 0;
+            
+            ball.x = gameWidth / 2;
+            ball.y = gameHeight / 2;
+            ball.vx = 0;
+            ball.vy = 0;
+            
+            createObstacles();
+            
+            document.getElementById('startMessage').style.display = 'block';
+            document.getElementById('catchCount').style.display = 'none';
+            gameRunning = false;
+        }
+        
+        // Launch ball
+        function launchBall() {
+            ball.x = gameWidth / 2;
+            ball.y = gameHeight / 2;
+            ball.vx = (Math.random() - 0.5) * 4;
+            ball.vy = -5;
+            gameRunning = true;
+            document.getElementById('startMessage').style.display = 'none';
+            document.getElementById('catchCount').style.display = 'block';
+        }
+        
+		// 修改键盘控制部分
+		function handleKeyDown(e) {
+			switch(e.code) {
+				case 'ArrowLeft':
+					paddle.vx = -PADDLE_SPEED;
+					// 立即移动一小步，消除延迟感
+					paddle.x = Math.max(0, paddle.x - 5); 
+					break;
+				case 'ArrowRight':
+					paddle.vx = PADDLE_SPEED;
+					// 立即移动一小步，消除延迟感
+					paddle.x = Math.min(gameWidth - paddle.width, paddle.x + 5);
+					break;
+				case 'Space':
+					if (!gameRunning) launchBall();
+					document.getElementById('introModal').remove();
+					break;
+				case 'KeyR':
+					resetGame();
+					break;
+			}
+		}
+        
+        function handleKeyUp(e) {
+            if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+                paddle.vx = 0;
+            }
+        }
+        
+        // Update game state
+        function update(timestamp) {
+            if (!lastTimestamp) lastTimestamp = timestamp;
+            const deltaTime = timestamp - lastTimestamp;
+            lastTimestamp = timestamp;
+            
+            // Apply gravity
+            ball.vy += GRAVITY;
+            
+            // Update ball position
+            ball.x += ball.vx;
+            ball.y += ball.vy;
+            
+            // Update paddle position
+            if (!gameRunning || paddle.vx !== 0) {
+                paddle.x += paddle.vx;
+                paddle.x = Math.max(0, Math.min(gameWidth - paddle.width, paddle.x));
+            }
+
+            // Keep paddle in bounds
+            if (paddle.x < 0) {
+                paddle.x = 0;
+                paddle.vx = 0;
+            } else if (paddle.x + paddle.width > gameWidth) {
+                paddle.x = gameWidth - paddle.width;
+                paddle.vx = 0;
+            }
+            
+            // Ball-wall collisions
+            if (ball.x - ball.radius < 0) {
+                ball.x = ball.radius;
+                ball.vx = -ball.vx * DAMPING;
+            } else if (ball.x + ball.radius > gameWidth) {
+                ball.x = gameWidth - ball.radius;
+                ball.vx = -ball.vx * DAMPING;
+            }
+            
+            if (ball.y - ball.radius < 0) {
+                ball.y = ball.radius;
+                ball.vy = -ball.vy * DAMPING;
+            }
+            
+            // Ball-paddle collision
+            if (ball.y + ball.radius > paddle.y && 
+                ball.y - ball.radius < paddle.y + paddle.height &&
+                ball.x + ball.radius > paddle.x && 
+                ball.x - ball.radius < paddle.x + paddle.width) {
+                
+                // 接球计数和特效
+                catchCount++;
+                catchEffectTime = CATCH_EFFECT_DURATION;
+                document.getElementById('catchDisplay').textContent = catchCount;
+                
+                // 创建粒子效果
+                createParticles(paddle.x + paddle.width/2, paddle.y);
+                
+                // Calculate hit position (-1 to 1)
+                const hitPos = ((ball.x - paddle.x) / paddle.width) * 2 - 1;
+                
+                // Bounce with angle based on hit position
+                ball.vy = -Math.abs(ball.vy) * DAMPING;
+                ball.vx = hitPos * 8; // More angle for edge hits
+                
+                // Add paddle velocity influence
+                ball.vx += paddle.vx * 0.5;
+                
+                // Ensure ball goes upward
+                if (ball.vy > -2) ball.vy = -2;
+                
+                // Add combo
+                addCombo(1);
+            }
+            
+            // 更新接球特效计时
+            if (catchEffectTime > 0) {
+                catchEffectTime -= deltaTime;
+            }
+            
+            // 更新粒子效果
+            updateParticles(deltaTime);
+            
+            // Ball-obstacle collisions
+            checkObstacleCollisions();
+            
+            // Check if ball fell off bottom
+            if (ball.y - ball.radius > gameHeight) {
+                loseLife();
+            }
+            
+            // Update combo decay
+            if (comboHits > 0) {
+                comboHits -= COMBO_DECAY_RATE * (deltaTime / 16);
+                if (comboHits < 0) comboHits = 0;
+                updateComboBar();
+            }
+            
+            // Check if combo ended
+            if (comboActive && comboHits < COMBO_THRESHOLD) {
+                comboActive = false;
+                paddle.width = 100;
+            }
+
+			 // 星星闪烁动画 - 更生动的效果
+			stars.forEach(star => {
+				if (star.active) {
+					star.scale += star.speed * star.scaleDirection;
+					star.alpha = 0.5 + star.scale * 0.5; // 透明度随缩放变化
+					
+					if (star.scale >= 1 || star.scale <= 0.3) {
+						star.scaleDirection *= -1;
+						if (star.scale <= 0.3 && Math.random() > 0.7) {
+							star.speed = 0.01 + Math.random() * 0.04; // 随机变化闪烁速度
+						}
+					}
+					
+					if (star.element) {
+						star.element.style.transform = `scale(${0.7 + star.scale * 0.5})`;
+						star.element.style.opacity = star.alpha;
+					}
+				}
+			});
+			
+			// 六边形旋转动画 - 更丰富的效果
+			hexagons.forEach(hex => {
+				if (hex.active) {
+					hex.rotation += hex.rotationSpeed;
+					// 使旋转速度也有微小变化
+					if (Math.random() > 0.95) {
+						hex.rotationSpeed = 0.3 + Math.random() * 3;
+					}
+					
+					if (hex.element) {
+						const scale = hex.width / 30;
+						const hue = (hex.rotation + hex.colorOffset) % 360;
+						hex.element.style.transform = `rotate(${hex.rotation}deg) scale(${scale})`;
+						hex.element.style.backgroundColor = `hsl(${hue}, 80%, 60%)`;
+					}
+				}
+			});
+        }
+        
+        // 创建粒子效果
+        function createParticles(x, y) {
+            const particleCount = comboActive ? 15 : 8; // 连击时更多粒子
+            const baseHue = catchCount * 10 % 360; // 根据接球数改变颜色
+            
+            for (let i = 0; i < particleCount; i++) {
+                particles.push({
+                    x: x,
+                    y: y,
+                    size: Math.random() * 4 + 2,
+                    vx: (Math.random() - 0.5) * 6,
+                    vy: -Math.random() * 4 - 2,
+                    life: 1000 + Math.random() * 500, // 粒子生命周期
+                    hue: (baseHue + Math.random() * 60) % 360
+                });
+            }
+        }
+        
+        // 更新粒子效果
+        function updateParticles(deltaTime) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.x += p.vx;
+                p.y += p.vy;
+                p.life -= deltaTime;
+                
+                // 移除生命周期结束的粒子
+                if (p.life <= 0) {
+                    particles.splice(i, 1);
+                }
+            }
+        }
+        
+        // Check collisions with obstacles
+        function checkObstacleCollisions() {
+            // Check star collisions
+            stars.forEach(star => {
+                if (star.active && 
+                    ball.x + ball.radius > star.x - star.width/2 &&
+                    ball.x - ball.radius < star.x + star.width/2 &&
+                    ball.y + ball.radius > star.y - star.height/2 &&
+                    ball.y - ball.radius < star.y + star.height/2) {
+                    
+                    // Bounce ball (simplified)
+                    ball.vy = -Math.abs(ball.vy) * DAMPING;
+                    
+                    // Score points
+                    addScore(5);
+                    
+                    // Add combo
+                    addCombo(1);
+                    
+                    // Deactivate star
+                    star.active = false;
+                    if (star.element) {
+                        star.element.style.transform = 'scale(1.5)';
+                        setTimeout(() => {
+                            if (star.element) star.element.remove();
+                        }, 200);
+                    }
+                }
+            });
+            
+            // Check hexagon collisions
+            hexagons.forEach(hex => {
+                if (hex.active && 
+                    ball.x + ball.radius > hex.x - hex.width/2 &&
+                    ball.x - ball.radius < hex.x + hex.width/2 &&
+                    ball.y + ball.radius > hex.y - hex.height/2 &&
+                    ball.y - ball.radius < hex.y + hex.height/2) {
+                    
+                    // Bounce ball (simplified)
+                    ball.vy = -Math.abs(ball.vy) * DAMPING;
+                    ball.vx = (ball.x < hex.x ? -1 : 1) * Math.abs(ball.vx);
+                    
+                    // Score points
+                    addScore(10);
+                    
+                    // Add combo
+                    addCombo(2);
+                    
+                    // Visual effect
+                    if (hex.element) {
+                        hex.element.style.transform = 'rotate(180deg) scale(1.5)';
+                        setTimeout(() => {
+                            if (hex.element) hex.element.style.transform = 'rotate(0deg) scale(1)';
+                        }, 200);
+                    }
+                }
+            });
+        }
+        
+        // Add to score
+        function addScore(points) {
+            if (comboActive) points *= 2;
+            score += points;
+            updateUI();
+        }
+        
+        // Add to combo
+        function addCombo(amount) {
+            comboHits += amount;
+            if (comboHits > 20) comboHits = 20;
+            
+            // Check if combo threshold reached
+            if (!comboActive && comboHits >= COMBO_THRESHOLD) {
+                comboActive = true;
+                paddle.width = 120; // Wider paddle during combo
+            }
+            
+            updateComboBar();
+        }
+        
+        // Update combo bar
+        function updateComboBar() {
+            const percent = (comboHits / 20) * 100;
+            document.getElementById('comboFill').style.width = `${percent}%`;
+        }
+        
+        // Lose a life
+        function loseLife() {
+            lives--;
+            updateUI();
+            
+            if (lives <= 0) {
+                resetGame();
+            } else {
+                ball.x = gameWidth / 2;
+                ball.y = gameHeight / 2;
+                ball.vx = 0;
+                ball.vy = 0;
+                gameRunning = false;
+                document.getElementById('startMessage').style.display = 'block';
+                document.getElementById('catchCount').style.display = 'none';
+            }
+        }
+        
+        // Update UI elements
+        function updateUI() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('lifeCount').textContent = lives;
+        }
+        
+        // Render game
+        function render() {
+            // Clear canvas
+            ctx.clearRect(0, 0, gameWidth, gameHeight);
+            
+            // Draw ball
+            ctx.beginPath();
+            ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+            ctx.fillStyle = '#0000CD';
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = '#0000CD';
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // Draw paddle with catch effect
+            ctx.beginPath();
+            ctx.roundRect(paddle.x, paddle.y, paddle.width, paddle.height, 5);
+            
+            // 接球特效
+            if (catchEffectTime > 0) {
+                const intensity = catchEffectTime / CATCH_EFFECT_DURATION;
+                ctx.fillStyle = `hsl(${180 + catchCount % 60}, 100%, ${50 + intensity * 20}%)`;
+                ctx.shadowBlur = 20 * intensity;
+                ctx.shadowColor = `hsl(${180 + catchCount % 60}, 100%, 50%)`;
+            } 
+            // 连击特效
+            else if (comboActive) {
+                ctx.fillStyle = '#00ff88';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#00ff88';
+            } 
+            // 普通状态
+            else {
+                ctx.fillStyle = '#0000CD';
+            }
+            
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            
+            // 绘制粒子效果
+            drawParticles();
+            
+            // Draw active stars (as fallback if CSS fails)
+            stars.forEach(star => {
+                if (star.active) {
+                    ctx.save();
+                    ctx.translate(star.x, star.y);
+                    ctx.scale(0.8, 0.8);
+                    ctx.fillStyle = 'gold';
+                    ctx.beginPath();
+                    for (let i = 0; i < 5; i++) {
+                        ctx.lineTo(
+                            Math.cos((i * 2 * Math.PI / 5)) * 10,
+                            Math.sin((i * 2 * Math.PI / 5)) * 10
+                        );
+                        ctx.lineTo(
+                            Math.cos((i * 2 * Math.PI / 5 + Math.PI / 5)) * 4,
+                            Math.sin((i * 2 * Math.PI / 5 + Math.PI / 5)) * 4
+                        );
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            });
+            
+            // Draw active hexagons (as fallback if CSS fails)
+            hexagons.forEach(hex => {
+                if (hex.active) {
+                    ctx.save();
+                    ctx.translate(hex.x, hex.y);
+                    ctx.rotate(Date.now() / 1000);
+                    ctx.fillStyle = '#ff00aa';
+                    ctx.beginPath();
+                    for (let i = 0; i < 6; i++) {
+                        ctx.lineTo(
+                            Math.cos(i * 2 * Math.PI / 6) * 15,
+                            Math.sin(i * 2 * Math.PI / 6) * 15
+                        );
+                    }
+                    ctx.closePath();
+                    ctx.fill();
+                    ctx.restore();
+                }
+            });
+			 // 绘制星星（更生动的Canvas绘制）
+			stars.forEach(star => {
+				if (star.active) {
+					ctx.save();
+					ctx.translate(star.x, star.y);
+					
+					const scale = 0.7 + star.scale * 0.5;
+					ctx.scale(scale, scale);
+					
+					// 创建发光效果
+					ctx.shadowBlur = 15 * star.scale;
+					ctx.shadowColor = `rgba(255, 215, 0, ${star.alpha})`;
+					
+					// 绘制星星
+					ctx.fillStyle = `rgba(255, 215, 0, ${star.alpha})`;
+					drawStar(ctx, 0, 0, 5, star.width/2, star.width/4);
+					
+					ctx.restore();
+				}
+			});
+			
+			// 绘制六边形（更丰富的Canvas绘制）
+			hexagons.forEach(hex => {
+				if (hex.active) {
+					ctx.save();
+					ctx.translate(hex.x, hex.y);
+					ctx.rotate(hex.rotation * Math.PI / 180);
+					
+					const hue = (hex.rotation + hex.colorOffset) % 360;
+					ctx.fillStyle = `hsl(${hue}, 80%, 60%)`;
+					
+					// 添加发光效果
+					ctx.shadowBlur = 10;
+					ctx.shadowColor = `hsl(${hue}, 80%, 60%)`;
+					
+					drawHexagon(ctx, 0, 0, hex.width/2);
+					
+					ctx.restore();
+				}
+			});
+        }
+		// 添加形状绘制函数
+		function drawStar(ctx, cx, cy, spikes, outerRadius, innerRadius) {
+			let rot = Math.PI/2*3;
+			let x = cx;
+			let y = cy;
+			const step = Math.PI/spikes;
+			
+			ctx.beginPath();
+			ctx.moveTo(cx, cy-outerRadius);
+			
+			for(let i = 0; i < spikes; i++) {
+				x = cx + Math.cos(rot)*outerRadius;
+				y = cy + Math.sin(rot)*outerRadius;
+				ctx.lineTo(x,y);
+				rot += step;
+				
+				x = cx + Math.cos(rot)*innerRadius;
+				y = cy + Math.sin(rot)*innerRadius;
+				ctx.lineTo(x,y);
+				rot += step;
+			}
+			
+			ctx.lineTo(cx, cy-outerRadius);
+			ctx.closePath();
+			ctx.fill();
+		}
+
+		function drawHexagon(ctx, x, y, radius) {
+			ctx.beginPath();
+			for(let i = 0; i < 6; i++) {
+				const angle = i * Math.PI/3;
+				ctx.lineTo(x + radius * Math.cos(angle), y + radius * Math.sin(angle));
+			}
+			ctx.closePath();
+			ctx.fill();
+		}        
+        // 绘制粒子效果
+        function drawParticles() {
+            particles.forEach(p => {
+                const alpha = Math.min(1, p.life / 1000);
+                ctx.fillStyle = `hsla(${p.hue}, 100%, 60%, ${alpha})`;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+        
+        // Main game loop
+        function gameLoop(timestamp) {
+            if (gameRunning) {
+                update(timestamp);
+            }
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // Start the game
+        window.onload = init;
+    </script>
+</body>
+</html>

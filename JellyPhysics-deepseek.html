@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>软体物理模拟（Jelly Physics）</title>
+  <style>
+    body { margin: 0; overflow: hidden; background: #222; }
+    canvas { display: block; }
+    #controls {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: white;
+      background: rgba(0,0,0,0.5);
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .slider-container {
+      margin: 5px 0;
+    }
+    label {
+      display: inline-block;
+      width: 80px;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="controls">
+    <div class="slider-container">
+      <label for="stiffness">Stiffness:</label>
+      <input type="range" id="stiffness" min="0.05" max="0.5" step="0.05" value="0.2">
+      <span id="stiffnessValue">0.2</span>
+    </div>
+    <div class="slider-container">
+      <label for="damping">Damping:</label>
+      <input type="range" id="damping" min="0.9" max="0.99" step="0.01" value="0.98">
+      <span id="dampingValue">0.98</span>
+    </div>
+    <div>
+      <button id="resetBtn">Reset Jelly</button>
+      <button id="pinBtn">Toggle Pin Center</button>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const stiffnessSlider = document.getElementById('stiffness');
+    const dampingSlider = document.getElementById('damping');
+    const stiffnessValue = document.getElementById('stiffnessValue');
+    const dampingValue = document.getElementById('dampingValue');
+    const resetBtn = document.getElementById('resetBtn');
+    const pinBtn = document.getElementById('pinBtn');
+
+    // 设置画布大小
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    // 软体模拟类
+    class JellyBody {
+      constructor(x, y, radius, pointsCount = 20) {
+        this.points = [];
+        this.springs = [];
+        this.radius = radius;
+        this.stiffness = parseFloat(stiffnessSlider.value);
+        this.damping = parseFloat(dampingSlider.value);
+        this.restitution = 0.7;
+        
+        // 创建圆形顶点
+        for (let i = 0; i < pointsCount; i++) {
+          const angle = (i / pointsCount) * Math.PI * 2;
+          const px = x + Math.cos(angle) * radius;
+          const py = y + Math.sin(angle) * radius;
+          this.points.push({
+            x: px,
+            y: py,
+            oldx: px,
+            oldy: py,
+            pinned: false
+          });
+        }
+        
+        // 中心点（用于固定）
+        this.centerPoint = {
+          x: x,
+          y: y,
+          pinned: false
+        };
+        
+        // 创建弹簧连接
+        for (let i = 0; i < pointsCount; i++) {
+          // 边缘弹簧
+          this.springs.push({
+            pointA: i,
+            pointB: (i + 1) % pointsCount,
+            length: this.calcDistance(
+              this.points[i].x, this.points[i].y,
+              this.points[(i + 1) % pointsCount].x, this.points[(i + 1) % pointsCount].y
+            )
+          });
+          
+          // 连接到中心点的弹簧
+          this.springs.push({
+            pointA: i,
+            pointB: -1, // -1表示中心点
+            length: radius * 0.9
+          });
+          
+          // 交叉弹簧增加稳定性
+          if (i % 2 === 0) {
+            this.springs.push({
+              pointA: i,
+              pointB: (i + Math.floor(pointsCount / 2)) % pointsCount,
+              length: radius * 2 * 0.9
+            });
+          }
+        }
+      }
+      
+      calcDistance(x1, y1, x2, y2) {
+        return Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+      }
+      
+      update(gravity = 0.2, mouseForce = null) {
+        // 更新中心点
+        if (!this.centerPoint.pinned) {
+          const vx = (this.centerPoint.x - this.centerPoint.oldx) * this.damping;
+          const vy = (this.centerPoint.y - this.centerPoint.oldy) * this.damping;
+          
+          this.centerPoint.oldx = this.centerPoint.x;
+          this.centerPoint.oldy = this.centerPoint.y;
+          
+          this.centerPoint.x += vx;
+          this.centerPoint.y += vy + gravity;
+        }
+        
+        // Verlet积分更新位置
+        for (const point of this.points) {
+          if (point.pinned) continue;
+          
+          const vx = (point.x - point.oldx) * this.damping;
+          const vy = (point.y - point.oldy) * this.damping;
+          
+          point.oldx = point.x;
+          point.oldy = point.y;
+          
+          point.x += vx;
+          point.y += vy + gravity;
+          
+          // 鼠标力场影响
+          if (mouseForce) {
+            const dx = point.x - mouseForce.x;
+            const dy = point.y - mouseForce.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist < mouseForce.radius) {
+              const force = mouseForce.strength * (1 - dist / mouseForce.radius);
+              point.x += dx / dist * force;
+              point.y += dy / dist * force;
+            }
+          }
+        }
+        
+        // 弹簧约束
+        for (const spring of this.springs) {
+          const pointA = spring.pointA === -1 ? this.centerPoint : this.points[spring.pointA];
+          const pointB = spring.pointB === -1 ? this.centerPoint : this.points[spring.pointB];
+          
+          const dx = pointB.x - pointA.x;
+          const dy = pointB.y - pointA.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const diff = (spring.length - dist) / dist * this.stiffness;
+          
+          const offsetX = dx * diff * 0.5;
+          const offsetY = dy * diff * 0.5;
+          
+          if (!pointA.pinned) {
+            pointA.x -= offsetX;
+            pointA.y -= offsetY;
+          }
+          if (!pointB.pinned) {
+            pointB.x += offsetX;
+            pointB.y += offsetY;
+          }
+        }
+        
+        // 边界碰撞
+        for (const point of [...this.points, this.centerPoint]) {
+          if (point.pinned) continue;
+          
+          if (point.x < 0) {
+            point.x = 0;
+            point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+          } else if (point.x > canvas.width) {
+            point.x = canvas.width;
+            point.oldx = point.x + (point.x - point.oldx) * this.restitution;
+          }
+          
+          if (point.y < 0) {
+            point.y = 0;
+            point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+          } else if (point.y > canvas.height) {
+            point.y = canvas.height;
+            point.oldy = point.y + (point.y - point.oldy) * this.restitution;
+          }
+        }
+      }
+      
+      draw(ctx) {
+        // 绘制半透明软体
+        ctx.fillStyle = 'rgba(255, 100, 100, 0.7)';
+        ctx.beginPath();
+        ctx.moveTo(this.points[0].x, this.points[0].y);
+        for (let i = 1; i <= this.points.length; i++) {
+          const point = this.points[i % this.points.length];
+          ctx.lineTo(point.x, point.y);
+        }
+        ctx.fill();
+        
+        // 绘制边缘
+        ctx.strokeStyle = 'rgba(200, 80, 80, 0.9)';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        // 绘制中心点（调试用）
+        if (this.centerPoint.pinned) {
+          ctx.fillStyle = 'rgba(0, 255, 0, 0.7)';
+          ctx.beginPath();
+          ctx.arc(this.centerPoint.x, this.centerPoint.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+      
+      reset(x, y) {
+        const angleStep = (Math.PI * 2) / this.points.length;
+        for (let i = 0; i < this.points.length; i++) {
+          const angle = i * angleStep;
+          this.points[i].x = x + Math.cos(angle) * this.radius;
+          this.points[i].y = y + Math.sin(angle) * this.radius;
+          this.points[i].oldx = this.points[i].x;
+          this.points[i].oldy = this.points[i].y;
+        }
+        this.centerPoint.x = x;
+        this.centerPoint.y = y;
+        this.centerPoint.oldx = x;
+        this.centerPoint.oldy = y;
+      }
+      
+      togglePinCenter() {
+        this.centerPoint.pinned = !this.centerPoint.pinned;
+      }
+    }
+
+    // 创建软体对象
+    const jelly = new JellyBody(canvas.width / 2, canvas.height / 3, 80);
+
+    // 鼠标交互变量
+    let mouse = { x: 0, y: 0, isDragging: false, force: null };
+    let lastMouse = { x: 0, y: 0 };
+
+    // 事件监听
+    canvas.addEventListener('mousemove', (e) => {
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+      
+      if (mouse.isDragging) {
+        // 创建鼠标力场
+        mouse.force = {
+          x: mouse.x,
+          y: mouse.y,
+          radius: 150,
+          strength: 10
+        };
+      }
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      mouse.isDragging = true;
+      mouse.x = e.clientX;
+      mouse.y = e.clientY;
+    });
+
+    canvas.addEventListener('mouseup', () => {
+      mouse.isDragging = false;
+      mouse.force = null;
+    });
+
+    // 触摸支持
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      mouse.x = e.touches[0].clientX;
+      mouse.y = e.touches[0].clientY;
+      
+      if (mouse.isDragging) {
+        mouse.force = {
+          x: mouse.x,
+          y: mouse.y,
+          radius: 150,
+          strength: 10
+        };
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      mouse.isDragging = true;
+      mouse.x = e.touches[0].clientX;
+      mouse.y = e.touches[0].clientY;
+    });
+
+    canvas.addEventListener('touchend', () => {
+      mouse.isDragging = false;
+      mouse.force = null;
+    });
+
+    // 控制面板事件
+    stiffnessSlider.addEventListener('input', () => {
+      jelly.stiffness = parseFloat(stiffnessSlider.value);
+      stiffnessValue.textContent = stiffnessSlider.value;
+    });
+
+    dampingSlider.addEventListener('input', () => {
+      jelly.damping = parseFloat(dampingSlider.value);
+      dampingValue.textContent = dampingSlider.value;
+    });
+
+    resetBtn.addEventListener('click', () => {
+      jelly.reset(canvas.width / 2, canvas.height / 3);
+    });
+
+    pinBtn.addEventListener('click', () => {
+      jelly.togglePinCenter();
+    });
+
+    // 键盘控制
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'r' || e.key === 'R') {
+        jelly.reset(canvas.width / 2, canvas.height / 3);
+      } else if (e.key === '+') {
+        jelly.stiffness = Math.min(0.5, jelly.stiffness + 0.05);
+        stiffnessSlider.value = jelly.stiffness;
+        stiffnessValue.textContent = jelly.stiffness.toFixed(2);
+      } else if (e.key === '-') {
+        jelly.stiffness = Math.max(0.05, jelly.stiffness - 0.05);
+        stiffnessSlider.value = jelly.stiffness;
+        stiffnessValue.textContent = jelly.stiffness.toFixed(2);
+      } else if (e.key === 'p' || e.key === 'P') {
+        jelly.togglePinCenter();
+      }
+    });
+
+    // 动画循环
+    function animate() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // 更新物理
+      jelly.update(0.2, mouse.force);
+      
+      // 绘制
+      jelly.draw(ctx);
+      
+      // 显示鼠标力场范围（调试用）
+      if (mouse.force) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.beginPath();
+        ctx.arc(mouse.force.x, mouse.force.y, mouse.force.radius, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      
+      requestAnimationFrame(animate);
+    }
+
+    // 处理窗口大小变化
+    window.addEventListener('resize', () => {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+      jelly.reset(canvas.width / 2, canvas.height / 3);
+    });
+
+    // 启动动画
+    animate();
+  </script>
+</body>
+</html>

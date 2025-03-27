@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>动态天气卡片</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #1a1a1a;
+            color: white;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            font-family: Arial, sans-serif;
+        }
+
+        .weather-container {
+            display: flex;
+            gap: 20px;
+            padding: 20px;
+            overflow-x: auto;
+        }
+
+        .weather-card {
+            width: 300px;
+            height: 400px;
+            background: #2d2d2d;
+            border-radius: 15px;
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        /* 公用元素 */
+        .sun {
+            width: 100px;
+            height: 100px;
+            background: radial-gradient(#ffd700 50%, transparent 70%);
+            border-radius: 50%;
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            animation: shine 3s infinite;
+        }
+
+        /* 风、雨、晴、雪的特殊样式 */
+        .wind .cloud {
+            width: 100px;
+            height: 50px;
+            background: #eee;
+            border-radius: 20px;
+            position: absolute;
+            animation: moveCloud 4s linear infinite;
+        }
+
+        .rain .raindrop {
+            width: 2px;
+            height: 10px;
+            background: #00f;
+            position: absolute;
+            animation: fall 1s linear infinite;
+        }
+
+        .clear .sun {
+            animation: shine 3s infinite;
+        }
+
+        .snow .flake {
+            width: 5px;
+            height: 5px;
+            background: white;
+            border-radius: 50%;
+            position: absolute;
+            animation: snow 5s linear infinite;
+        }
+
+        /* 动画定义 */
+        @keyframes moveCloud {
+            from { left: -100px; }
+            to { left: 100%; }
+        }
+
+        @keyframes fall {
+            from { top: -10px; }
+            to { top: 100%; }
+        }
+
+        @keyframes shine {
+            0% { filter: brightness(1); }
+            50% { filter: brightness(1.2); }
+            100% { filter: brightness(1); }
+        }
+
+        @keyframes snow {
+            from { transform: translateY(-100%) rotate(0deg); }
+            to { transform: translateY(100vh) rotate(360deg); }
+        }
+
+        .controls {
+            margin: 20px;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            background: #444;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button onclick="showWeather('wind')">风</button>
+        <button onclick="showWeather('rain')">雨</button>
+        <button onclick="showWeather('clear')">晴</button>
+        <button onclick="showWeather('snow')">雪</button>
+    </div>
+    <div class="weather-container">
+        <div class="weather-card wind">
+            <div class="cloud"></div>
+            <div class="tree" style="left: 30%; bottom: 20px; width: 30px; height: 80px; background: #4a752c; border-radius: 10px; position: absolute;"></div>
+        </div>
+        <div class="weather-card rain">
+            <!-- 雨滴由JavaScript动态生成 -->
+        </div>
+        <div class="weather-card clear">
+            <div class="sun"></div>
+        </div>
+        <div class="weather-card snow">
+            <!-- 雪花由JavaScript动态生成 -->
+        </div>
+    </div>
+
+    <script>
+        function showWeather(type) {
+            const cards = document.querySelectorAll('.weather-card');
+            cards.forEach(card => {
+                card.classList.remove('active');
+                card.innerHTML = ''; // 清除动态内容以便重新动画
+            });
+
+            const card = document.querySelector(`.${type}`);
+            card.classList.add('active');
+
+            // 为雨和雪生成动态元素
+            if (type === 'rain') {
+                for (let i = 0; i < 50; i++) {
+                    const drop = document.createElement('div');
+                    drop.style.left = Math.random() * 100 + '%';
+                    drop.style.animationDelay = Math.random() * 2 + 's';
+                    drop.classList.add('raindrop');
+                    card.appendChild(drop);
+                }
+            }
+
+            if (type === 'snow') {
+                for (let i = 0; i < 30; i++) {
+                    const flake = document.createElement('div');
+                    flake.style.left = Math.random() * 100 + '%';
+                    flake.style.animationDelay = Math.random() * 3 + 's';
+                    flake.classList.add('flake');
+                    card.appendChild(flake);
+                }
+            }
+        }
+
+        // 初始化显示
+        document.querySelectorAll('.weather-card').forEach(card => {
+            card.style.display = 'none';
+        });
+        showWeather('wind');
+    </script>
+</body>
+</html>

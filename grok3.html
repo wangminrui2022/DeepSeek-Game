@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气卡片动画</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            background: #121212;
+            font-family: Arial, sans-serif;
+            overflow-x: hidden;
+        }
+
+        .controls {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .controls button {
+            padding: 8px 16px;
+            margin: 0 5px;
+            background: #333;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .controls button.active {
+            background: #6200ea;
+        }
+
+        .weather-container {
+            display: flex;
+            gap: 20px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .weather-card {
+            width: 200px;
+            height: 300px;
+            background: #1e1e1e;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.3s;
+        }
+
+        .weather-card.active {
+            transform: scale(1.05);
+        }
+
+        .weather-card .title {
+            color: #fff;
+            text-align: center;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.5);
+            position: absolute;
+            width: 100%;
+            z-index: 10;
+        }
+
+        /* 风动画 */
+        .wind .cloud {
+            position: absolute;
+            width: 50px;
+            height: 20px;
+            background: #ccc;
+            border-radius: 20px;
+            opacity: 0.8;
+        }
+
+        .wind.active .cloud1 { animation: moveCloud 4s infinite linear; }
+        .wind.active .cloud2 { animation: moveCloud 3s infinite linear -1s; }
+        .wind.active .tree {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 100px;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><path d="M50 90 L40 70 Q45 60 50 70 Q55 60 60 70 L50 90" fill="green"/></svg>') center / 50px no-repeat;
+            animation: swayTree 2s infinite ease-in-out;
+        }
+
+        @keyframes moveCloud {
+            from { left: -60px; }
+            to { left: 260px; }
+        }
+
+        @keyframes swayTree {
+            0%, 100% { transform: rotate(-5deg); }
+            50% { transform: rotate(5deg); }
+        }
+
+        /* 雨动画 */
+        .rain .drop {
+            position: absolute;
+            width: 2px;
+            height: 20px;
+            background: #00b4d8;
+            transform: rotate(20deg);
+        }
+
+        .rain.active .drop { animation: fallRain 1s infinite linear; }
+        .rain.active .puddle {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 50px;
+            background: radial-gradient(circle, rgba(0,180,216,0.3) 10%, transparent 70%);
+            animation: ripple 2s infinite;
+        }
+
+        @keyframes fallRain {
+            from { top: -20px; opacity: 1; }
+            to { top: 300px; opacity: 0; }
+        }
+
+        @keyframes ripple {
+            0% { transform: scale(0.8); opacity: 0; }
+            50% { opacity: 0.5; }
+            100% { transform: scale(1.2); opacity: 0; }
+        }
+
+        /* 晴动画 */
+        .sunny {
+            background: radial-gradient(circle at center 50px, #ffeb3b 20%, #1e1e1e 60%);
+        }
+
+        .sunny.active {
+            animation: glow 3s infinite;
+        }
+
+        .sunny .ray {
+            position: absolute;
+            width: 100px;
+            height: 2px;
+            background: rgba(255, 235, 59, 0.7);
+            top: 50px;
+            left: 50%;
+            transform-origin: left;
+        }
+
+        .sunny.active .ray1 { animation: flicker 2s infinite; transform: rotate(45deg); }
+        .sunny.active .ray2 { animation: flicker 2s infinite 0.5s; transform: rotate(-45deg); }
+
+        @keyframes glow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.2); }
+        }
+
+        @keyframes flicker {
+            0%, 100% { opacity: 0; }
+            50% { opacity: 1; }
+        }
+
+        /* 雪动画 */
+        .snow .flake {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background: #fff;
+            border-radius: 50%;
+        }
+
+        .snow.active .flake { animation: fallSnow 5s infinite linear; }
+        .snow.active .snowpile {
+            position: absolute;
+            bottom: 0;
+            width: 100%;
+            height: 0;
+            background: #fff;
+            animation: pileSnow 10s forwards;
+        }
+
+        @keyframes fallSnow {
+            from { top: -10px; opacity: 1; transform: translateX(0); }
+            to { top: 300px; opacity: 0.5; transform: translateX(20px); }
+        }
+
+        @keyframes pileSnow {
+            to { height: 30px; }
+        }
+
+        @media (max-width: 800px) {
+            .weather-container {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="controls">
+        <button data-weather="wind">风</button>
+        <button data-weather="rain">雨</button>
+        <button data-weather="sunny">晴</button>
+        <button data-weather="snow">雪</button>
+    </div>
+
+    <div class="weather-container">
+        <div class="weather-card wind">
+            <div class="title">风</div>
+            <div class="cloud cloud1" style="top: 50px;"></div>
+            <div class="cloud cloud2" style="top: 80px;"></div>
+            <div class="tree"></div>
+        </div>
+        <div class="weather-card rain">
+            <div class="title">雨</div>
+            <div class="puddle"></div>
+        </div>
+        <div class="weather-card sunny">
+            <div class="title">晴</div>
+            <div class="ray ray1"></div>
+            <div class="ray ray2"></div>
+        </div>
+        <div class="weather-card snow">
+            <div class="title">雪</div>
+            <div class="snowpile"></div>
+        </div>
+    </div>
+
+    <script>
+        const buttons = document.querySelectorAll('.controls button');
+        const cards = document.querySelectorAll('.weather-card');
+
+        // 初始化雨滴
+        const rainCard = document.querySelector('.rain');
+        for (let i = 0; i < 30; i++) {
+            const drop = document.createElement('div');
+            drop.className = 'drop';
+            drop.style.left = `${Math.random() * 100}%`;
+            drop.style.animationDelay = `${Math.random()}s`;
+            rainCard.appendChild(drop);
+        }
+
+        // 初始化雪花
+        const snowCard = document.querySelector('.snow');
+        for (let i = 0; i < 50; i++) {
+            const flake = document.createElement('div');
+            flake.className = 'flake';
+            flake.style.left = `${Math.random() * 100}%`;
+            flake.style.animationDelay = `${Math.random() * 5}s`;
+            snowCard.appendChild(flake);
+        }
+
+        buttons.forEach(button => {
+            button.addEventListener('click', () => {
+                const weather = button.getAttribute('data-weather');
+                
+                // 更新按钮状态
+                buttons.forEach(btn => btn.classList.remove('active'));
+                button.classList.add('active');
+
+                // 更新卡片状态
+                cards.forEach(card => {
+                    card.classList.remove('active');
+                    if (card.classList.contains(weather)) {
+                        card.classList.add('active');
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+</html>

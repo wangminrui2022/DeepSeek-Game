@@ -1,0 +1,119 @@
+软体物理模拟（Jelly Physics）需求文档
+1. 核心概念
+柔体动力学：模拟类似果冻、布丁、橡胶等软体材料的物理特性，包括 弹性形变、阻尼振动 和 碰撞恢复。
+
+交互体验：用户可以通过鼠标拖动、点击或施加力场来影响软体物体的形状和运动。
+
+2. 物理特性
+顶点弹簧模型（Mass-Spring System）：
+
+软体由多个质点（顶点）和弹簧（边）组成，模拟拉伸和压缩。
+
+弹簧刚度（Stiffness）：控制形变难易程度（k = 0.1 较软，k = 0.5 较硬）。
+
+阻尼（Damping）：减少振动幅度，避免无限弹动（damping = 0.98）。
+
+碰撞检测：
+
+软体与边界、障碍物碰撞时发生形变（非刚性碰撞）。
+
+碰撞后部分能量损失（restitution = 0.7）。
+
+外力影响：
+
+重力（gravity = 0.2）。
+
+鼠标交互施加的瞬时力（如点击产生冲击波）。
+
+3. 视觉表现
+软体形状：
+
+默认圆形/方形，可拉伸挤压。
+
+表面渲染为半透明凝胶材质（RGBA(255, 100, 100, 0.7)）。
+
+形变动画：
+
+拉伸时边缘变薄，压缩时变厚。
+
+受外力时颜色短暂变化（如受压变深红色）。
+
+环境元素：
+
+固定障碍物（如钉子、墙壁）。
+
+可交互力场区域（如风扇吹动气流）。
+
+4. 交互设计
+鼠标控制：
+
+拖拽：点击并拖动软体，释放后回弹。
+
+冲击：点击某位置产生径向力，使软体局部凹陷。
+
+键盘控制：
+
+R 重置软体位置。
+
++/- 调整软体刚度（实时影响物理参数）。
+
+触摸支持：适配移动端触屏操作。
+
+5. 技术实现要求
+物理引擎：使用 Verlet 积分法（适合柔体模拟）或 Matter.js（若需简化开发）。
+
+渲染方式：
+
+Canvas 2D：通过 context.fill() 绘制动态形状。
+
+WebGL（可选）：使用 Three.js 实现更逼真光照效果。
+
+性能优化：
+
+限制顶点数量（如圆形用 20 个顶点构成）。
+
+使用 requestAnimationFrame 确保流畅动画。
+
+6. 代码结构示例（单HTML文件）
+html
+复制
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { margin: 0; overflow: hidden; background: #222; }
+    canvas { display: block; }
+    #controls { position: absolute; top: 10px; left: 10px; color: white; }
+  </style>
+</head>
+<body>
+  <canvas id="canvas"></canvas>
+  <div id="controls">
+    刚度: <input type="range" id="stiffness" min="0.05" max="0.5" step="0.05" value="0.2">
+  </div>
+  <script>
+    // 软体对象
+    class JellyBody {
+      constructor() {
+        this.points = []; // 质点数组
+        this.springs = []; // 弹簧数组
+        this.stiffness = 0.2;
+      }
+      // 更新物理状态
+      update() {
+        for (const spring of this.springs) {
+          // 计算弹簧力并应用...
+        }
+      }
+    }
+    // 主循环...
+  </script>
+</body>
+</html>
+运行 HTML
+为什么选择 Verlet 积分？
+适合柔体模拟：天然稳定，适合弹簧-质点系统。
+
+计算高效：比欧拉积分更适合实时交互。
+
+如果需要完整代码或调整参数（如更粘稠/更弹性的材质），可以告诉我！ 🍮
