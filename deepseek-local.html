@@ -1,182 +1,481 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-    <title>动态天气卡片</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>天气卡片动画</title>
     <style>
-        body {
+        /* 基础样式 */
+        * {
             margin: 0;
-            padding: 20px;
-            background: #1a1a1a;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background-color: #121212;
             color: white;
+            font-family: 'Arial', sans-serif;
+            padding: 20px;
+            min-height: 100vh;
             display: flex;
             flex-direction: column;
             align-items: center;
-            min-height: 100vh;
-            font-family: Arial, sans-serif;
         }
-
-        .weather-container {
+        
+        h1 {
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        /* 按钮样式 */
+        .weather-buttons {
             display: flex;
-            gap: 20px;
-            padding: 20px;
-            overflow-x: auto;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
         }
-
-        .weather-card {
-            width: 300px;
-            height: 400px;
-            background: #2d2d2d;
-            border-radius: 15px;
-            position: relative;
-            overflow: hidden;
-            flex-shrink: 0;
-        }
-
-        /* 公用元素 */
-        .sun {
-            width: 100px;
-            height: 100px;
-            background: radial-gradient(#ffd700 50%, transparent 70%);
-            border-radius: 50%;
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            animation: shine 3s infinite;
-        }
-
-        /* 风、雨、晴、雪的特殊样式 */
-        .wind .cloud {
-            width: 100px;
-            height: 50px;
-            background: #eee;
+        
+        .weather-button {
+            padding: 8px 16px;
+            background: #333;
+            border: none;
             border-radius: 20px;
+            color: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .weather-button:hover {
+            background: #555;
+        }
+        
+        .weather-button.active {
+            background: #0078ff;
+        }
+        
+        /* 天气卡片容器 */
+        .weather-cards {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px;
+        }
+        
+        /* 单个天气卡片样式 */
+        .weather-card {
+            position: relative;
+            width: 250px;
+            height: 350px;
+            background: #1e1e1e;
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .weather-title {
+            font-size: 24px;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        /* 风天气动画 */
+        .wind-card .cloud {
             position: absolute;
-            animation: moveCloud 4s linear infinite;
-        }
-
-        .rain .raindrop {
-            width: 2px;
-            height: 10px;
-            background: #00f;
-            position: absolute;
-            animation: fall 1s linear infinite;
-        }
-
-        .clear .sun {
-            animation: shine 3s infinite;
-        }
-
-        .snow .flake {
-            width: 5px;
-            height: 5px;
             background: white;
             border-radius: 50%;
+            opacity: 0.8;
+        }
+        
+        .wind-card .cloud1 {
+            width: 60px;
+            height: 30px;
+            top: 50px;
+            left: 30px;
+            animation: cloudMove 8s linear infinite paused;
+        }
+        
+        .wind-card .cloud2 {
+            width: 80px;
+            height: 40px;
+            top: 80px;
+            left: 100px;
+            animation: cloudMove 10s linear infinite paused;
+        }
+        
+        .wind-card .tree {
             position: absolute;
-            animation: snow 5s linear infinite;
+            bottom: 20px;
+            width: 30px;
+            height: 100px;
+            background: #5a3d1e;
+            border-radius: 5px;
         }
-
+        
+        .wind-card .tree::before {
+            content: '';
+            position: absolute;
+            top: -30px;
+            left: -15px;
+            width: 60px;
+            height: 60px;
+            background: #2e7d32;
+            border-radius: 50%;
+        }
+        
+        .wind-card .tree1 {
+            left: 50px;
+            transform-origin: bottom center;
+            animation: treeSway 3s ease-in-out infinite alternate paused;
+        }
+        
+        .wind-card .tree2 {
+            left: 120px;
+            transform-origin: bottom center;
+            animation: treeSway 3.5s ease-in-out infinite alternate paused;
+        }
+        
+        /* 雨天气动画 */
+        .rain-card {
+            position: relative;
+        }
+        
+        .rain-card .raindrop {
+            position: absolute;
+            width: 2px;
+            height: 10px;
+            background: rgba(100, 180, 255, 0.8);
+            border-radius: 2px;
+            animation: rainFall 1s linear infinite paused;
+        }
+        
+        .rain-card .puddle {
+            position: absolute;
+            bottom: 20px;
+            width: 40px;
+            height: 20px;
+            border-radius: 50%;
+            background: rgba(0, 100, 200, 0.3);
+            opacity: 0;
+        }
+        
+        /* 晴天动画 */
+        .sunny-card {
+            transition: background-color 1s;
+        }
+        
+        .sunny-card .sun {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            background: #ffeb3b;
+            border-radius: 50%;
+            top: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            box-shadow: 0 0 20px #ffeb3b;
+        }
+        
+        .sunny-card .sunray {
+            position: absolute;
+            width: 80px;
+            height: 5px;
+            background: rgba(255, 235, 59, 0.6);
+            top: 95px;
+            left: 50%;
+            transform-origin: left center;
+            animation: sunRayPulse 3s ease-in-out infinite paused;
+        }
+        
+        /* 雪天动画 */
+        .snow-card {
+            position: relative;
+        }
+        
+        .snow-card .snowflake {
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background: white;
+            border-radius: 50%;
+            opacity: 0.8;
+            animation: snowFall 5s linear infinite paused;
+        }
+        
+        .snow-card .snow-accumulation {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 0;
+            background: white;
+            opacity: 0.8;
+            transition: height 10s linear;
+        }
+        
         /* 动画定义 */
-        @keyframes moveCloud {
-            from { left: -100px; }
-            to { left: 100%; }
+        @keyframes cloudMove {
+            0% { transform: translateX(-100px); }
+            100% { transform: translateX(300px); }
         }
-
-        @keyframes fall {
-            from { top: -10px; }
-            to { top: 100%; }
+        
+        @keyframes treeSway {
+            0% { transform: rotate(-5deg); }
+            100% { transform: rotate(5deg); }
         }
-
-        @keyframes shine {
+        
+        @keyframes rainFall {
+            0% { transform: translateY(-100px) rotate(15deg); opacity: 1; }
+            70% { opacity: 1; }
+            100% { transform: translateY(200px) rotate(15deg); opacity: 0; }
+        }
+        
+        @keyframes ripple {
+            0% { transform: scale(0); opacity: 0.5; }
+            100% { transform: scale(2); opacity: 0; }
+        }
+        
+        @keyframes sunRayPulse {
+            0% { transform: rotate(var(--angle)) scale(0.8); opacity: 0.6; }
+            50% { transform: rotate(var(--angle)) scale(1.2); opacity: 1; }
+            100% { transform: rotate(var(--angle)) scale(0.8); opacity: 0.6; }
+        }
+        
+        @keyframes snowFall {
+            0% { transform: translateY(-100px) translateX(0); opacity: 1; }
+            50% { transform: translateY(100px) translateX(10px); }
+            100% { transform: translateY(200px) translateX(0); opacity: 0; }
+        }
+        
+        @keyframes brightnessPulse {
             0% { filter: brightness(1); }
-            50% { filter: brightness(1.2); }
+            50% { filter: brightness(1.1); }
             100% { filter: brightness(1); }
         }
-
-        @keyframes snow {
-            from { transform: translateY(-100%) rotate(0deg); }
-            to { transform: translateY(100vh) rotate(360deg); }
-        }
-
-        .controls {
-            margin: 20px;
-        }
-
-        button {
-            padding: 10px 20px;
-            margin: 5px;
-            background: #444;
-            color: white;
-            border: none;
-            border-radius: 5px;
-            cursor: pointer;
-        }
-
-        button:hover {
-            background: #666;
+        
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .weather-cards {
+                flex-direction: column;
+                align-items: center;
+            }
+            
+            .weather-card {
+                width: 90%;
+                max-width: 300px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <button onclick="showWeather('wind')">风</button>
-        <button onclick="showWeather('rain')">雨</button>
-        <button onclick="showWeather('clear')">晴</button>
-        <button onclick="showWeather('snow')">雪</button>
+    <h1>天气卡片动画</h1>
+    
+    <div class="weather-buttons">
+        <button class="weather-button" data-weather="wind">风</button>
+        <button class="weather-button" data-weather="rain">雨</button>
+        <button class="weather-button" data-weather="sunny">晴</button>
+        <button class="weather-button" data-weather="snow">雪</button>
     </div>
-    <div class="weather-container">
-        <div class="weather-card wind">
-            <div class="cloud"></div>
-            <div class="tree" style="left: 30%; bottom: 20px; width: 30px; height: 80px; background: #4a752c; border-radius: 10px; position: absolute;"></div>
+    
+    <div class="weather-cards">
+        <!-- 风天气卡片 -->
+        <div class="weather-card wind-card">
+            <h2 class="weather-title">风</h2>
+            <div class="cloud cloud1"></div>
+            <div class="cloud cloud2"></div>
+            <div class="tree tree1"></div>
+            <div class="tree tree2"></div>
         </div>
-        <div class="weather-card rain">
-            <!-- 雨滴由JavaScript动态生成 -->
+        
+        <!-- 雨天气卡片 -->
+        <div class="weather-card rain-card">
+            <h2 class="weather-title">雨</h2>
+            <!-- 雨滴将通过JS动态添加 -->
         </div>
-        <div class="weather-card clear">
+        
+        <!-- 晴天卡片 -->
+        <div class="weather-card sunny-card">
+            <h2 class="weather-title">晴</h2>
             <div class="sun"></div>
+            <!-- 太阳光线将通过JS动态添加 -->
         </div>
-        <div class="weather-card snow">
-            <!-- 雪花由JavaScript动态生成 -->
+        
+        <!-- 雪天卡片 -->
+        <div class="weather-card snow-card">
+            <h2 class="weather-title">雪</h2>
+            <div class="snow-accumulation"></div>
+            <!-- 雪花将通过JS动态添加 -->
         </div>
     </div>
 
     <script>
-        function showWeather(type) {
-            const cards = document.querySelectorAll('.weather-card');
-            cards.forEach(card => {
-                card.classList.remove('active');
-                card.innerHTML = ''; // 清除动态内容以便重新动画
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取所有天气按钮和卡片
+            const weatherButtons = document.querySelectorAll('.weather-button');
+            const weatherCards = document.querySelectorAll('.weather-card');
+            
+            // 存储动画状态
+            const animationStates = {
+                wind: false,
+                rain: false,
+                sunny: false,
+                snow: false
+            };
+            
+            // 初始化天气元素
+            initWeatherElements();
+            
+            // 为每个按钮添加点击事件
+            weatherButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const weatherType = this.dataset.weather;
+                    
+                    // 切换按钮激活状态
+                    weatherButtons.forEach(btn => btn.classList.remove('active'));
+                    this.classList.add('active');
+                    
+                    // 切换卡片激活状态
+                    weatherCards.forEach(card => card.classList.remove('active'));
+                    document.querySelector(`.${weatherType}-card`).classList.add('active');
+                    
+                    // 如果动画尚未开始，则开始动画
+                    if (!animationStates[weatherType]) {
+                        startWeatherAnimation(weatherType);
+                        animationStates[weatherType] = true;
+                    }
+                });
             });
-
-            const card = document.querySelector(`.${type}`);
-            card.classList.add('active');
-
-            // 为雨和雪生成动态元素
-            if (type === 'rain') {
-                for (let i = 0; i < 50; i++) {
-                    const drop = document.createElement('div');
-                    drop.style.left = Math.random() * 100 + '%';
-                    drop.style.animationDelay = Math.random() * 2 + 's';
-                    drop.classList.add('raindrop');
-                    card.appendChild(drop);
-                }
-            }
-
-            if (type === 'snow') {
+            
+            // 初始化天气元素
+            function initWeatherElements() {
+                // 创建雨滴
+                const rainCard = document.querySelector('.rain-card');
                 for (let i = 0; i < 30; i++) {
-                    const flake = document.createElement('div');
-                    flake.style.left = Math.random() * 100 + '%';
-                    flake.style.animationDelay = Math.random() * 3 + 's';
-                    flake.classList.add('flake');
-                    card.appendChild(flake);
+                    const raindrop = document.createElement('div');
+                    raindrop.classList.add('raindrop');
+                    raindrop.style.left = `${Math.random() * 100}%`;
+                    raindrop.style.animationDelay = `${Math.random() * 2}s`;
+                    rainCard.appendChild(raindrop);
+                }
+                
+                // 创建太阳光线
+                const sunnyCard = document.querySelector('.sunny-card');
+                for (let i = 0; i < 12; i++) {
+                    const angle = i * 30;
+                    const sunray = document.createElement('div');
+                    sunray.classList.add('sunray');
+                    sunray.style.setProperty('--angle', `${angle}deg`);
+                    sunray.style.transform = `rotate(${angle}deg)`;
+                    sunray.style.animationDelay = `${Math.random() * 0.5}s`;
+                    sunnyCard.appendChild(sunray);
+                }
+                
+                // 创建雪花
+                const snowCard = document.querySelector('.snow-card');
+                for (let i = 0; i < 50; i++) {
+                    const snowflake = document.createElement('div');
+                    snowflake.classList.add('snowflake');
+                    snowflake.style.left = `${Math.random() * 100}%`;
+                    snowflake.style.animationDelay = `${Math.random() * 5}s`;
+                    snowflake.style.opacity = `${0.3 + Math.random() * 0.7}`;
+                    snowflake.style.width = `${2 + Math.random() * 4}px`;
+                    snowflake.style.height = snowflake.style.width;
+                    snowCard.appendChild(snowflake);
                 }
             }
-        }
-
-        // 初始化显示
-        document.querySelectorAll('.weather-card').forEach(card => {
-            card.style.display = 'none';
+            
+            // 开始特定天气的动画
+            function startWeatherAnimation(weatherType) {
+                const card = document.querySelector(`.${weatherType}-card`);
+                
+                switch (weatherType) {
+                    case 'wind':
+                        // 启动云和树的动画
+                        const clouds = card.querySelectorAll('.cloud');
+                        const trees = card.querySelectorAll('.tree');
+                        
+                        clouds.forEach(cloud => {
+                            cloud.style.animationPlayState = 'running';
+                        });
+                        
+                        trees.forEach(tree => {
+                            tree.style.animationPlayState = 'running';
+                        });
+                        break;
+                        
+                    case 'rain':
+                        // 启动雨滴动画并创建水坑涟漪
+                        const raindrops = card.querySelectorAll('.raindrop');
+                        
+                        raindrops.forEach(drop => {
+                            drop.style.animationPlayState = 'running';
+                        });
+                        
+                        // 创建水坑涟漪
+                        setInterval(() => {
+                            const puddle = document.createElement('div');
+                            puddle.classList.add('puddle');
+                            puddle.style.left = `${10 + Math.random() * 80}%`;
+                            puddle.style.bottom = '20px';
+                            card.appendChild(puddle);
+                            
+                            // 添加涟漪动画
+                            setTimeout(() => {
+                                puddle.style.opacity = '0.5';
+                                puddle.style.animation = 'ripple 1.5s forwards';
+                                
+                                // 动画结束后移除元素
+                                setTimeout(() => {
+                                    puddle.remove();
+                                }, 1500);
+                            }, 10);
+                        }, 500);
+                        break;
+                        
+                    case 'sunny':
+                        // 启动太阳光线动画和背景亮度变化
+                        const sunrays = card.querySelectorAll('.sunray');
+                        
+                        sunrays.forEach(ray => {
+                            ray.style.animationPlayState = 'running';
+                        });
+                        
+                        card.style.animation = 'brightnessPulse 5s ease-in-out infinite';
+                        break;
+                        
+                    case 'snow':
+                        // 启动雪花动画和积雪累积
+                        const snowflakes = card.querySelectorAll('.snowflake');
+                        const snowAccumulation = card.querySelector('.snow-accumulation');
+                        
+                        snowflakes.forEach(flake => {
+                            flake.style.animationPlayState = 'running';
+                        });
+                        
+                        snowAccumulation.style.height = '20px';
+                        break;
+                }
+            }
+            
+            // 为所有卡片添加鼠标悬停效果
+            weatherCards.forEach(card => {
+                card.addEventListener('mouseenter', function() {
+                    this.style.transform = 'translateY(-10px)';
+                    this.style.boxShadow = '0 8px 16px rgba(0, 0, 0, 0.4)';
+                });
+                
+                card.addEventListener('mouseleave', function() {
+                    this.style.transform = 'translateY(0)';
+                    this.style.boxShadow = '0 4px 8px rgba(0, 0, 0, 0.3)';
+                });
+            });
         });
-        showWeather('wind');
     </script>
 </body>
 </html>
